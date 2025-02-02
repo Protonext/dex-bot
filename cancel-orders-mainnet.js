@@ -82,7 +82,7 @@ const withdrawActions = async () => {
   },
   {
     account: 'dex',
-    name: "withdrawall",
+    name: 'withdrawall',
     data: {
         account: username,
     },
@@ -95,9 +95,9 @@ const withdrawActions = async () => {
 const main = async () => {
   let cancelList = [];
   let i = 0;
-  while(true) {
+  while (true) {
     const ordersList = await fetchOpenOrders(username, 150, 150 * i);
-    if(!ordersList.length) break;
+    if (!ordersList.length) break;
     cancelList.push(...ordersList);
     i++;
   }
@@ -119,7 +119,7 @@ const main = async () => {
     }
     cancelList = marketOrders;
   }
-  if(!cancelList.length) {
+  if (!cancelList.length) {
     console.log(`No orders to cancel`);
     return;
   }

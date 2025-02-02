@@ -1,6 +1,6 @@
 {
   "bot" : {
-    "tradeIntervalMS": "5000",
+    "tradeIntervalMS": "10000",
     "slackIntervalMS": "1000000",
     "slackBotToken": "",
     "channelId": "",
@@ -22,12 +22,33 @@
     "gridBot": {
       "pairs": [
         {
+          "symbol": "XPR_XMD",
+          "upperLimit": 0.0080000,
+          "lowerLimit": 0.0030000,
+          "gridLevels": 125,
+          "bidAmountPerLevel": 8002
+        },
+        {
+          "symbol": "METAL_XMD",
+          "upperLimit": 0.200,
+          "lowerLimit": 0.080,
+          "gridLevels": 14,
+          "bidAmountPerLevel": 102
+        },        
+        {
           "symbol": "XDOGE_XMD",
-          "upperLimit": 0.580,
-          "lowerLimit": 0.100,
-          "gridLevels": 240,
-          "bidAmountPerLevel": 30
-        } 
+          "upperLimit": 0.450,
+          "lowerLimit": 0.200,
+          "gridLevels": 14,
+          "bidAmountPerLevel": 22
+        },        
+        {
+          "symbol": "XHBAR_XMD",
+          "upperLimit": 0.500,
+          "lowerLimit": 0.200,
+          "gridLevels": 14,
+          "bidAmountPerLevel": 102
+        }       
       ]
     },
     "rpc": {

@@ -1,0 +1,195 @@
+Completed BUY order for 27.08475 XPR_XMD at 0.005159
+
+Attributes: {
+  "Market": {
+    "market_id": 1,
+    "symbol": "XPR_XMD",
+    "status_code": 1,
+    "type": "spot",
+    "maker_fee": 0.1,
+    "taker_fee": 0.1,
+    "order_min": 1,
+    "bid_token": {
+      "code": "XPR",
+      "precision": 4,
+      "contract": "eosio.token",
+      "multiplier": 10000
+    },
+    "ask_token": {
+      "code": "XMD",
+      "precision": 6,
+      "contract": "xmd.token",
+      "multiplier": 1000000
+    }
+  },
+  "gridLevels": 248,
+  "bidPrecision": 4,
+  "askPrecision": 6,
+  "lastSalePrice": "0.005150",
+  "upperLimit": "75",
+  "lowerLimit": "30",
+  "bidAmountPerLevel": "5250",
+  "gridSize": "0.18145161290322580645",
+  "gridPrice": "0.000018"
+}
+
+Counter Order - SELL: {
+  "sellPrice": "0.005177",
+  "quantity": 5250,
+  "order": {
+    "orderSide": 2,
+    "price": 0.005177,
+    "quantity": 5250,
+    "marketSymbol": "XPR_XMD"
+  }
+}
+
+Completed SELL order for 5250 XPR_XMD at 0.005177
+
+Attributes: {
+  "Market": {
+    "market_id": 1,
+    "symbol": "XPR_XMD",
+    "status_code": 1,
+    "type": "spot",
+    "maker_fee": 0.1,
+    "taker_fee": 0.1,
+    "order_min": 1,
+    "bid_token": {
+      "code": "XPR",
+      "precision": 4,
+      "contract": "eosio.token",
+      "multiplier": 10000
+    },
+    "ask_token": {
+      "code": "XMD",
+      "precision": 6,
+      "contract": "xmd.token",
+      "multiplier": 1000000
+    }
+  },
+  "gridLevels": 248,
+  "bidPrecision": 4,
+  "askPrecision": 6,
+  "lastSalePrice": "0.005150",
+  "upperLimit": "75",
+  "lowerLimit": "30",
+  "bidAmountPerLevel": "5250",
+  "gridSize": "0.18145161290322580645",
+  "gridPrice": "0.000018"
+}
+
+Calculated Percent Spread: 0.347691713347498551
+
+{
+  "calculatedTotalPercentSpread": "0.347691713347498551",
+  "calculatedPurchaseSpread": "0.2238458566737492755",
+  "calculatedDifference": "11.75190747537183699",
+  "representativeSpread": "5268.2538149507436739275",
+  "bidAmountPerLevel": "5250",
+  "adjustedBidAmountPerLevel": "5261.75190747537183699"
+}
+
+Counter Order - BUY: {
+  "buyPrice": "0.005159",
+  "adjustedTotal": 27.145378,
+  "order": {
+    "orderSide": 1,
+    "price": 0.005159,
+    "quantity": 27.145378,
+    "marketSymbol": "XPR_XMD"
+  }
+}
+
+Completed BUY order for 26.99025 XPR_XMD at 0.005141
+
+Attributes: {
+  "Market": {
+    "market_id": 1,
+    "symbol": "XPR_XMD",
+    "status_code": 1,
+    "type": "spot",
+    "maker_fee": 0.1,
+    "taker_fee": 0.1,
+    "order_min": 1,
+    "bid_token": {
+      "code": "XPR",
+      "precision": 4,
+      "contract": "eosio.token",
+      "multiplier": 10000
+    },
+    "ask_token": {
+      "code": "XMD",
+      "precision": 6,
+      "contract": "xmd.token",
+      "multiplier": 1000000
+    }
+  },
+  "gridLevels": 248,
+  "bidPrecision": 4,
+  "askPrecision": 6,
+  "lastSalePrice": "0.005140",
+  "upperLimit": "75",
+  "lowerLimit": "30",
+  "bidAmountPerLevel": "5250",
+  "gridSize": "0.18145161290322580645",
+  "gridPrice": "0.000018"
+}
+
+Counter Order - SELL: {
+  "sellPrice": "0.005159",
+  "quantity": 5250,
+  "order": {
+    "orderSide": 2,
+    "price": 0.005159,
+    "quantity": 5250,
+    "marketSymbol": "XPR_XMD"
+  }
+}
+
+Completed BUY order for 27.145378 XPR_XMD at 0.005159
+
+Attributes: {
+  "Market": {
+    "market_id": 1,
+    "symbol": "XPR_XMD",
+    "status_code": 1,
+    "type": "spot",
+    "maker_fee": 0.1,
+    "taker_fee": 0.1,
+    "order_min": 1,
+    "bid_token": {
+      "code": "XPR",
+      "precision": 4,
+      "contract": "eosio.token",
+      "multiplier": 10000
+    },
+    "ask_token": {
+      "code": "XMD",
+      "precision": 6,
+      "contract": "xmd.token",
+      "multiplier": 1000000
+    }
+  },
+  "gridLevels": 248,
+  "bidPrecision": 4,
+  "askPrecision": 6,
+  "lastSalePrice": "0.005140",
+  "upperLimit": "75",
+  "lowerLimit": "30",
+  "bidAmountPerLevel": "5250",
+  "gridSize": "0.18145161290322580645",
+  "gridPrice": "0.000018"
+}
+
+Counter Order - SELL: {
+  "sellPrice": "0.005177",
+  "quantity": 5250,
+  "order": {
+    "orderSide": 2,
+    "price": 0.005177,
+    "quantity": 5250,
+    "marketSymbol": "XPR_XMD"
+  }
+}
+

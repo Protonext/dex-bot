@@ -1,0 +1,80 @@
+{
+  "bot" : {
+    "tradeIntervalMS": "10000",
+    "slackIntervalMS": "1000000",
+    "slackBotToken": "",
+    "channelId": "",
+    "cancelOpenOrdersOnExit": false,
+    "gridPlacement": true,
+    "strategy": "gridBot",
+    "marketMaker": {
+      "pairs": [
+        {
+          "symbol": "XPR_XMD",
+          "gridLevels": 20,
+          "gridInterval": 0.005,
+          "base": "AVERAGE",
+          "orderSide": "BOTH",
+          "bidAmountPerLevel": 5
+        }
+        ,
+        {
+          "symbol": "XBTC_XMD",
+          "gridLevels": 10,
+          "gridInterval": 0.005,
+          "base": "BID",
+          "orderSide": "BOTH",
+          "bidAmountPerLevel": 10
+        }
+      ]
+    },
+    "gridBot": {
+      "pairs": [
+        {
+          "symbol": "XPR_XMD",
+          "upperLimit": 0.0012000,
+          "lowerLimit": 0.0006000,
+          "gridLevels": 14,
+          "bidAmountPerLevel": 40000
+        },
+        {
+          "symbol": "XETH_XMD",
+          "upperLimit": 2500.00,
+          "lowerLimit": 2000.00,
+          "gridLevels": 14,
+          "bidAmountPerLevel": 0.025
+        },
+        {
+          "symbol": "METAL_XMD",
+          "upperLimit": 0.070,
+          "lowerLimit": 0.050,
+          "gridLevels": 14,
+          "bidAmountPerLevel": 420
+        },             
+        {
+          "symbol": "XHBAR_XMD",
+          "upperLimit": 0.100,
+          "lowerLimit": 0.040,
+          "gridLevels": 14,
+          "bidAmountPerLevel": 100
+        },
+        {
+          "symbol": "XLTC_XMD",
+          "upperLimit": 100.000,
+          "lowerLimit": 40.000,
+          "gridLevels": 14,
+          "bidAmountPerLevel": 0.25
+        }                
+      ]
+    },
+    "rpc": {
+      "privateKeyPermission": "active",
+      "endpoints" : [
+        "https://rpc.api.mainnet.metalx.com",
+        "https://mainnet-rpc.api.protondex.com"
+      ],
+      "apiRoot": "https://dex.api.mainnet.metalx.com/dex",
+      "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
+    }
+  }
+}

@@ -21,7 +21,6 @@ function logItem(item: string | object, label?: string ) {
   }
   fs.appendFileSync(logFileName, item + '\n\n');
 }
-
 /**
  * Grid Trading Bot Strategy
  * Grid Trading Bots are programs that allow users to automatically buy low and sell high within a pre-set price range.
@@ -150,7 +149,8 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           }
           // Makesure to place only maxGrids order, as there is a possibility to place 1 additional order because of the non divisible configuration
           if (this.oldOrders[i].length <= maxGrids) {
-            await this.placeOrders(this.oldOrders[i]);
+            console.log("Not Placing Orders");
+            // await this.placeOrders(this.oldOrders[i]);
           }
         } else if (openOrders.length > 0 && openOrders.length < gridLevels) {
           // compare open orders with old orders and placce counter orders for the executed orders
@@ -168,6 +168,20 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
             if (!newOrder) {
               const buySellString = "Completed " + (this.oldOrders[i][j].orderSide == ORDERSIDES.BUY ? "BUY" : (this.oldOrders[i][j].orderSide == ORDERSIDES.SELL ? "SELL" : "INVALID")) + " order for " + this.oldOrders[i][j].quantity + " " + this.oldOrders[i][j].marketSymbol + " at " + this.oldOrders[i][j].price;
               logger.info(buySellString);
+
+              logItem(buySellString);
+              logItem({
+                Market: market,
+                gridLevels,
+                bidPrecision,
+                askPrecision,
+                lastSalePrice,
+                upperLimit,
+                lowerLimit,
+                bidAmountPerLevel,
+                gridSize,
+                gridPrice
+              }, "Attributes");
              
               if (this.oldOrders[i][j].orderSide === ORDERSIDES.BUY) {
                 const lowestAsk = this.getLowestAsk(currentOrders);
@@ -194,6 +208,12 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                   marketSymbol,
                 };
 
+                logItem({
+                  sellPrice,
+                  quantity,
+                  order,
+                }, "Counter Order - SELL");
+               
                 latestOrders.push(order);
                 currentOrders.push(order);
               } else if (this.oldOrders[i][j].orderSide === ORDERSIDES.SELL) {
@@ -208,12 +228,36 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                   buyPrice = new BN(highestBid)
                     .plus(gridPrice)
                     .toFixed(askPrecision); 
+                
+                // Divide the spread (i.e. gridPrice) by the old order price to get the percentage spread
+                const calculatedTotalPercentSpread = BN(gridPrice).dividedBy(new BN(this.oldOrders[i][j].price)).times(100); 
+                logItem("Calculated Percent Spread: " + calculatedTotalPercentSpread);
+
+                // If the spread is 0.3%, then we need to adjust the bidAmountPerLevel by ((calculatedPercentSpread - 0.1) / 2) + 0.1
+                // For example, if the spread is 0.3%, then the bidAmountPerLevel will be adjusted by ((0.3 - 0.1) / 2) + 0.1 = 0.2 / 2 + 0.1 = 0.1 + 0.1 = 0.2
+                // This means that the bidAmountPerLevel will be increased by 0.2% for the next order
+                const calculatedPurchaseSpread = calculatedTotalPercentSpread.minus(0.1).dividedBy(2).plus(0.1);
+                // Convert this to a value that can be added to the bidAmountPerLevel
+                const calculatedDifference = BN(bidAmountPerLevel).times(calculatedPurchaseSpread.dividedBy(100));
+                // Add the calculated difference to the bidAmountPerLevel to get the adjusted bidAmountPerLevel
+                const adjustedBidAmountPerLevel = BN(bidAmountPerLevel).plus(calculatedDifference);
+                
+                logItem({
+                  calculatedTotalPercentSpread,
+                  calculatedPurchaseSpread,
+                  calculatedDifference,
+                  representativeSpread: bidAmountPerLevel.plus(BN(bidAmountPerLevel).times(calculatedTotalPercentSpread.dividedBy(100))),
+                  bidAmountPerLevel,
+                  adjustedBidAmountPerLevel,
+                });
+
                 const { adjustedTotal } = this.getQuantityAndAdjustedTotal(
                   buyPrice,
-                  bidAmountPerLevel,
+                  adjustedBidAmountPerLevel,
                   bidPrecision,
                   askPrecision
                 );
+
                 const order = {
                   orderSide: ORDERSIDES.BUY,
                   price: +buyPrice,
@@ -221,13 +265,21 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                   marketSymbol,
                 };
 
+                logItem({
+                  buyPrice,
+                  adjustedTotal,
+                  order,
+                }, "Counter Order - BUY");
+
                 latestOrders.push(order);
                 currentOrders.push(order);
               }
             }
           }
-          await this.placeOrders(latestOrders);
+          // await this.placeOrders(latestOrders);
           // Update old orders for next round of inspection
+          console.log("Latest Orders", latestOrders);
+          console.log("Finishing Loop");
           this.oldOrders[i] = currentOrders;
         }
       } catch (error) {

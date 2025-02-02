@@ -22,12 +22,26 @@
     "gridBot": {
       "pairs": [
         {
+          "symbol": "XPR_XMD",
+          "upperLimit": 0.0080000,
+          "lowerLimit": 0.0030000,
+          "gridLevels": 125,
+          "bidAmountPerLevel": 20004
+        },
+         {
           "symbol": "XDOGE_XMD",
-          "upperLimit": 0.580,
-          "lowerLimit": 0.100,
-          "gridLevels": 240,
-          "bidAmountPerLevel": 30
-        } 
+          "upperLimit": 0.400,
+          "lowerLimit": 0.300,
+          "gridLevels": 60,
+          "bidAmountPerLevel": 100
+        },
+        {
+          "symbol": "XHBAR_XMD",
+          "upperLimit": 0.400,
+          "lowerLimit": 0.280,
+          "gridLevels": 60,
+          "bidAmountPerLevel": 300
+        }        
       ]
     },
     "rpc": {
