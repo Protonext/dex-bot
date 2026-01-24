@@ -13,7 +13,7 @@ const config = getConfig();
 const { endpoints, privateKey, privateKeyPermission } = config.rpc;
 const username = getUsername();
 
-let signatureProvider = process.env.npm_lifecycle_event === 'test'? undefined : new JsSignatureProvider([privateKey]);
+let signatureProvider = process.env.npm_lifecycle_event === 'test' ? undefined : new JsSignatureProvider([privateKey]);
 let actions: OrderAction[] = [];
 
 // Initialize
@@ -23,7 +23,7 @@ const api = new Api({
   signatureProvider
 });
 
-const apiTransact = (actions: Serialize.Action[] ) => api.transact({ actions }, {
+const apiTransact = (actions: Serialize.Action[]) => api.transact({ actions }, {
   blocksBehind: 300,
   expireSeconds: 3000,
 });
@@ -45,7 +45,7 @@ const transact = async (actions: OrderAction[]) => {
   const authorizedActions = actions.map((action) => ({ ...action, authorization }));
   const maxRetries = 3;
   let attempts = 0;
-  while(attempts < maxRetries) {
+  while (attempts < maxRetries) {
     try {
       await apiTransact(authorizedActions);
       break;
@@ -67,7 +67,7 @@ const transact = async (actions: OrderAction[]) => {
  */
 export const prepareLimitOrder = async (marketSymbol: string, orderSide: ORDERSIDES, quantity: BigNumber.Value, price: number): Promise<void> => {
   const market = dexapi.getMarketBySymbol(marketSymbol);
-  if(!market) {
+  if (!market) {
     throw new Error(`No market found by symbol ${marketSymbol}`);
   }
   const askToken = market.ask_token;
@@ -129,23 +129,23 @@ export const prepareLimitOrder = async (marketSymbol: string, orderSide: ORDERSI
 
 export const submitOrders = async (): Promise<void> => {
   actions.push(
-  {
-    account: 'dex',
-    name: 'process',
-    data: {
-      q_size: 60,
-      show_error_msg: 0,
+    {
+      account: 'dex',
+      name: 'process',
+      data: {
+        q_size: 60,
+        show_error_msg: 0,
+      },
+      authorization,
     },
-    authorization,
-  },
-  {
-    account: 'dex',
-    name: "withdrawall",
-    data: {
+    {
+      account: 'dex',
+      name: "withdrawall",
+      data: {
         account: username,
-    },
-    authorization,
-  },);
+      },
+      authorization,
+    },);
 
   const response = await apiTransact(actions);
   actions = [];
@@ -179,7 +179,7 @@ const withdrawAction = () => ({
   account: 'dex',
   name: "withdrawall",
   data: {
-      account: username,
+    account: username,
   },
   authorization,
 });
@@ -201,13 +201,13 @@ export const cancelAllOrders = async (): Promise<void> => {
   try {
     let cancelList = [];
     let i = 0;
-    while(true) {
+    while (true) {
       const ordersList = await dexapi.fetchOpenOrders(username, 150, 150 * i);
-      if(!ordersList.length) break;
+      if (!ordersList.length) break;
       cancelList.push(...ordersList);
       i++;
     }
-    if(!cancelList.length) {
+    if (!cancelList.length) {
       console.log(`No orders to cancel`);
       return;
     }
@@ -221,3 +221,52 @@ export const cancelAllOrders = async (): Promise<void> => {
     return undefined
   }
 };
+
+
+/**
+ * Get the current swaps available on-chain
+ */
+export const getSwaps = async (): Promise<{ [key: string]: any }> => {
+  const rows: { more: boolean, next_key: string, rows: { active: boolean, amplifier: boolean, creator: string, fee: { exchange_fee: number, add_liquidity_fee: number, remove_liquidity_fee: number }, hash: string, lt_symbol: string, memo: string, pool1: { quantity: string, contract: string }, pool2: { quantity: string, contract: string } }[] } =
+    await api.rpc.get_table_rows({
+      json: true,
+      code: "proton.swaps",
+      scope: "proton.swaps",
+      table: "pools",
+      index_position: 1,
+      key_type: "i64",
+      limit: -1,
+      reverse: false,
+      show_payer: false
+    });
+
+  if (rows.rows) {
+    logger.info(`Fetched ${rows.rows.length} swap pools from proton.swaps`);
+    const returnObj: { [key: string]: any } = {}
+    rows.rows.forEach((r) => {
+      let cleaned_symbol = r.lt_symbol.split(",")[1];
+      returnObj[cleaned_symbol] = r;
+    });
+    return returnObj;
+  }
+
+  return {};
+}
+
+export const submitSwapRequest = async (sendAmount: string, sendToken: string, sendContract: string, pairSymbol: string) => {
+  // Create a random number for the memo
+  const randomNumber = Math.floor(Math.random() * 10000000);
+  const action = {
+    account: sendContract,
+    name: 'transfer',
+    authorization,
+    data: {
+      from: username,
+      to: 'proton.swaps',
+      quantity: sendAmount + ' ' + sendToken,
+      memo: pairSymbol + ',' + randomNumber,
+    }
+  }
+  const response = await transact([action]);
+  return response;
+}

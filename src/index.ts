@@ -33,7 +33,7 @@ currentStrategy.initialize(config[config.strategy]);
  */
 const main = async () => {
   const logger = getLogger();
-  
+
   await dexapi.initialize();
 
   try {
@@ -44,12 +44,12 @@ const main = async () => {
           input: process.stdin,
           output: process.stdout
         });
-      
+
         rl.on("SIGINT", function () {
           process.emit("SIGINT");
         });
       }
-      
+
       async function signalHandler() {
         await dexrpc.cancelAllOrders();
         process.exit();
@@ -59,12 +59,17 @@ const main = async () => {
       process.on('SIGTERM', signalHandler)
       process.on('SIGQUIT', signalHandler)
     }
-    
-    await currentStrategy.trade()
-    logger.info(`Waiting for few seconds before fetching the placed orders`);
-    await delay(15000)
-    execTrade()
-    execSlack()
+
+    if (config.strategy !== 'swapper') {
+      await currentStrategy.trade()
+      logger.info(`Waiting for few seconds before fetching the placed orders`);
+      await delay(15000)
+      execTrade()
+      execSlack()
+    } else {
+      execTrade()
+      execSlack()
+    }
   } catch (error) {
     logger.error((error as Error).message);
   }
