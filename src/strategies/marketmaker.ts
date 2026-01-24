@@ -6,6 +6,7 @@ import { BotConfig, MarketMakerPair, TradeOrder, TradingStrategy } from '../inte
 import { getLogger } from '../utils';
 import { MarketDetails, TradingStrategyBase } from './base';
 import { fetchTokenBalance } from '../dexapi';
+import { events } from '../events';
 
 const logger = getLogger();
 
@@ -44,7 +45,9 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
         const preparedOrders = await this.prepareOrders(this.pairs[i].symbol, marketDetails, openOrders);
         await this.placeOrders(preparedOrders, 100);
       } catch (error) {
-        logger.error((error as Error).message);
+        const errorMsg = (error as Error).message;
+        logger.error(errorMsg);
+        events.botError(`MarketMaker error: ${errorMsg}`, { error: errorMsg });
       }
     }
   }
@@ -155,8 +158,17 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
     const sellBalances  = await fetchTokenBalance(this.username, market.bid_token.contract, market.bid_token.code);
     const buyBalances = await fetchTokenBalance(this.username, market.ask_token.contract, market.ask_token.code);
     if(sellTotal > sellBalances || buyTotal > buyBalances) {
-      logger.error(`LOW BALANCES - Current balance ${sellBalances} ${market.bid_token.code} - Expected ${sellTotal} ${market.bid_token.code}
-                    Current balance ${buyBalances} ${market.ask_token.code} - Expected ${buyTotal} ${market.ask_token.code}`);
+      const errorMsg = `LOW BALANCES - Current balance ${sellBalances} ${market.bid_token.code} - Expected ${sellTotal} ${market.bid_token.code}, Current balance ${buyBalances} ${market.ask_token.code} - Expected ${buyTotal} ${market.ask_token.code}`;
+      logger.error(errorMsg);
+
+      // Emit balance low event
+      events.balanceLow(errorMsg, {
+        market: marketSymbol,
+        sellRequired: sellTotal,
+        sellAvailable: sellBalances,
+        buyRequired: buyTotal,
+        buyAvailable: buyBalances,
+      });
       process.exit();
     }
 

@@ -4,6 +4,7 @@ import * as dexrpc from './dexrpc';
 import { getStrategy } from './strategies';
 import readline from 'readline';
 import { postSlackMsg } from './slackapi';
+import { events } from './events';
 
 function delay(ms: number) {
   return new Promise((resolve) => {
@@ -27,6 +28,9 @@ const config = getConfig();
 const currentStrategy = getStrategy(config.strategy);
 currentStrategy.initialize(config[config.strategy]);
 
+// Initialize dashboard events
+events.initialize();
+
 /**
  * Main
  * This sets up the logic for the application, the looping, timing, and what to do on exit.
@@ -35,6 +39,14 @@ const main = async () => {
   const logger = getLogger();
 
   await dexapi.initialize();
+
+  // Emit bot started event
+  events.botStarted(`Bot started with strategy: ${config.strategy}`);
+  events.configLoaded('Configuration loaded', {
+    strategy: config.strategy,
+    username: config.username,
+    tradeIntervalMS: config.tradeIntervalMS,
+  });
 
   try {
     process.stdin.resume();
@@ -51,6 +63,8 @@ const main = async () => {
       }
 
       async function signalHandler() {
+        events.botStopped('Bot shutting down - cancelling all orders');
+        events.shutdown();
         await dexrpc.cancelAllOrders();
         process.exit();
       }
@@ -71,7 +85,9 @@ const main = async () => {
       execSlack()
     }
   } catch (error) {
-    logger.error((error as Error).message);
+    const errorMsg = (error as Error).message;
+    logger.error(errorMsg);
+    events.botError(`Fatal error: ${errorMsg}`, { error: errorMsg });
   }
 };
 

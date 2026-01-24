@@ -5,6 +5,7 @@ import { BotConfig, GridBotPair, TradeOrder, TradingStrategy } from '../interfac
 import { configValueToFloat, configValueToInt, getConfig, getLogger, getUsername } from '../utils';
 import { TradingStrategyBase } from './base';
 import { fetchTokenBalance } from '../dexapi';
+import { events } from '../events';
 import fs from "fs";
 
 const logFileName = './gridbot-logs-' + getUsername() + '.txt';
@@ -143,9 +144,18 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           const sellBalances  = await fetchTokenBalance(username, market.bid_token.contract, market.bid_token.code);
           const buyBalances = await fetchTokenBalance(username, market.ask_token.contract, market.ask_token.code);
           if(sellTotal > sellBalances || buyTotal > buyBalances) {
-            logger.error(`LOW BALANCES - Current balance ${sellBalances} ${market.bid_token.code} - Expected ${sellTotal} ${market.bid_token.code}
-                      Current balance ${buyBalances} ${market.ask_token.code} - Expected ${buyTotal} ${market.ask_token.code}`);
+            const errorMsg = `LOW BALANCES - Current balance ${sellBalances} ${market.bid_token.code} - Expected ${sellTotal} ${market.bid_token.code}, Current balance ${buyBalances} ${market.ask_token.code} - Expected ${buyTotal} ${market.ask_token.code}`;
+            logger.error(errorMsg);
             logger.info(` Overdrawn Balance - Not placing orders for ${market.bid_token.code}-${market.ask_token.code} `);
+
+            // Emit balance low event
+            events.balanceLow(errorMsg, {
+              market: `${market.bid_token.code}-${market.ask_token.code}`,
+              sellRequired: sellTotal,
+              sellAvailable: sellBalances,
+              buyRequired: buyTotal,
+              buyAvailable: buyBalances,
+            });
             continue;
           }
           // Makesure to place only maxGrids order, as there is a possibility to place 1 additional order because of the non divisible configuration
@@ -166,8 +176,17 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                 openOrders.price === this.oldOrders[i][j].price
             );
             if (!newOrder) {
-              const buySellString = "Completed " + (this.oldOrders[i][j].orderSide == ORDERSIDES.BUY ? "BUY" : (this.oldOrders[i][j].orderSide == ORDERSIDES.SELL ? "SELL" : "INVALID")) + " order for " + this.oldOrders[i][j].quantity + " " + this.oldOrders[i][j].marketSymbol + " at " + this.oldOrders[i][j].price;
+              const orderSideStr = this.oldOrders[i][j].orderSide == ORDERSIDES.BUY ? "BUY" : (this.oldOrders[i][j].orderSide == ORDERSIDES.SELL ? "SELL" : "INVALID");
+              const buySellString = "Completed " + orderSideStr + " order for " + this.oldOrders[i][j].quantity + " " + this.oldOrders[i][j].marketSymbol + " at " + this.oldOrders[i][j].price;
               logger.info(buySellString);
+
+              // Emit order filled event
+              events.orderFilled(buySellString, {
+                market: this.oldOrders[i][j].marketSymbol,
+                side: orderSideStr,
+                quantity: this.oldOrders[i][j].quantity,
+                price: this.oldOrders[i][j].price,
+              });
              
               if (this.oldOrders[i][j].orderSide === ORDERSIDES.BUY) {
                 const lowestAsk = this.getLowestAsk(currentOrders);
@@ -231,7 +250,9 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           this.oldOrders[i] = currentOrders;
         }
       } catch (error) {
-        logger.error((error as Error).message);
+        const errorMsg = (error as Error).message;
+        logger.error(errorMsg);
+        events.botError(`GridBot error: ${errorMsg}`, { error: errorMsg });
       }
     }
   }

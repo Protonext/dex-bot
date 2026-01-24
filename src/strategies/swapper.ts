@@ -1,4 +1,4 @@
-// grid bot strategy
+// swapper bot strategy
 import { BigNumber as BN } from 'bignumber.js';
 import { ORDERSIDES } from '../core/constants';
 import { BotConfig, GridBotPair, SwapBotPair, TradeOrder, TradingStrategy } from '../interfaces';
@@ -6,6 +6,7 @@ import { configValueToFloat, configValueToInt, getConfig, getLogger, getUsername
 import { TradingStrategyBase } from './base';
 import { fetchTokenBalance } from '../dexapi';
 import { getSwaps, submitSwapRequest } from '../dexrpc';
+import { events } from '../events';
 import fs from "fs";
 
 const logFileName = './gridbot-logs-' + getUsername() + '.txt';
@@ -112,6 +113,17 @@ export class SwapBotStrategy extends TradingStrategyBase implements TradingStrat
                         swapSymbol
                     );
 
+                    // Emit swap event
+                    events.swapExecuted(`BUY swap: ${this.pairs[i].quoteAmountPerSwap} ${configQuote} for ${invertedQuoteAmount.toFixed(4)} ${configBase}`, {
+                        symbol: swapSymbol,
+                        side: 'BUY',
+                        quoteAmount: this.pairs[i].quoteAmountPerSwap,
+                        quoteToken: configQuote,
+                        baseAmount: invertedQuoteAmount,
+                        baseToken: configBase,
+                        priceRatio: invertedQuotePriceRatio,
+                    });
+
                 } else if (currentQuoteValue >= this.pairs[i].quoteSellMinThreshold) {
                     // We are possibly going to sell, test the min hold
                     if (parseFloat(quoteBalance) < this.pairs[i].quoteMinHold) {
@@ -125,20 +137,33 @@ export class SwapBotStrategy extends TradingStrategyBase implements TradingStrat
                     }
 
                     console.log(`Executing SELL for ${this.pairs[i].quoteAmountPerSwap} ${configQuote} worth ${currentQuoteValue.toFixed(6)} ${configBase} at price ratio ${quotePriceRatio.toFixed(6)}`);
-                    // Ready to sell, sending quite contract
+                    // Ready to sell, sending quote contract
                     submitSwapRequest(
                         (this.pairs[i].quoteAmountPerSwap).toFixed(4),
                         configQuote,
                         quoteContract,
                         swapSymbol
                     );
+
+                    // Emit swap event
+                    events.swapExecuted(`SELL swap: ${this.pairs[i].quoteAmountPerSwap} ${configQuote} for ${currentQuoteValue.toFixed(6)} ${configBase}`, {
+                        symbol: swapSymbol,
+                        side: 'SELL',
+                        quoteAmount: this.pairs[i].quoteAmountPerSwap,
+                        quoteToken: configQuote,
+                        baseAmount: currentQuoteValue,
+                        baseToken: configBase,
+                        priceRatio: quotePriceRatio,
+                    });
                 } else {
                     console.log(`No action required for ${swapSymbol}, current quote value ${currentQuoteValue.toFixed(6)} is within thresholds.`);
                     continue;
                 }
 
             } catch (error) {
-                logger.error((error as Error).message);
+                const errorMsg = (error as Error).message;
+                logger.error(errorMsg);
+                events.botError(`Swapper error: ${errorMsg}`, { error: errorMsg });
             }
         }
     }

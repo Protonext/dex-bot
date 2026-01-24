@@ -3,6 +3,12 @@
     "rpc": {
       "privateKey": "PROTON_PRIVATE_KEY"
     },
-    "username": "PROTON_USERNAME"
+    "username": "PROTON_USERNAME",
+    "dashboard": {
+      "url": "DASHBOARD_URL",
+      "apiKey": "DASHBOARD_API_KEY",
+      "instanceId": "DASHBOARD_INSTANCE_ID",
+      "enabled": "DASHBOARD_ENABLED"
+    }
   }
 }

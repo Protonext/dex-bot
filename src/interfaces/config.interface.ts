@@ -34,6 +34,13 @@ export interface SwapBotPair {
 }
 
 
+export interface DashboardConfig {
+    url: string;
+    apiKey: string;
+    instanceId: string;
+    enabled?: boolean;
+}
+
 export interface BotConfig {
     tradeIntervalMS: number;
     slackIntervalMS: number;
@@ -59,4 +66,5 @@ export interface BotConfig {
         privateKey: string;
     };
     username: string;
+    dashboard?: DashboardConfig;
 }
