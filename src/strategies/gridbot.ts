@@ -105,7 +105,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           let validOrderCount = 0;
           let invalidOrderCount = 0;
 
-          for (; index <= maxGrids; index += 1) {
+          for (; index < maxGrids; index += 1) {
             const price = upperLimit
               .minus(gridSize.multipliedBy(index))
               .dividedBy(10 ** bidPrecision)
