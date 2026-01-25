@@ -89,10 +89,22 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
             continue;
           const priceTraded = new BN(lastSalePrice).times(10 ** bidPrecision);
           logger.info(`upperLimit ${upperLimit}, lowerLimit: ${lowerLimit}, priceTraded: ${priceTraded}`);
+
+          // DEBUG: Log precision and grid calculations
+          logger.info(`[DEBUG] ${marketSymbol} - bidPrecision: ${bidPrecision}, askPrecision: ${askPrecision}`);
+          logger.info(`[DEBUG] ${marketSymbol} - lastSalePrice: ${lastSalePrice}, gridSize: ${gridSize.toString()}, gridPrice: ${gridPrice}`);
+          logger.info(`[DEBUG] ${marketSymbol} - bidAmountPerLevel: ${bidAmountPerLevel.toString()}`);
+
           if(upperLimit.isGreaterThanOrEqualTo(priceTraded) && lowerLimit.isGreaterThanOrEqualTo(priceTraded))  maxGrids -= 1;
           if(upperLimit.isLessThanOrEqualTo(priceTraded) && lowerLimit.isLessThanOrEqualTo(priceTraded))   index = 1;
+
+          logger.info(`[DEBUG] ${marketSymbol} - After bounds check: index=${index}, maxGrids=${maxGrids}`);
+
           var sellToken = 0;
           var buyToken = 0;
+          let validOrderCount = 0;
+          let invalidOrderCount = 0;
+
           for (; index <= maxGrids; index += 1) {
             const price = upperLimit
               .minus(gridSize.multipliedBy(index))
@@ -104,9 +116,10 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
               bidPrecision,
               askPrecision
             );
-            const validOrder = new BN(
-              Math.abs(parseFloat(price) - parseFloat(lastSalePrice))
-            ).isGreaterThanOrEqualTo(+gridPrice / 2);
+
+            const priceDiff = Math.abs(parseFloat(price) - parseFloat(lastSalePrice));
+            const minDiff = +gridPrice / 2;
+            const validOrder = new BN(priceDiff).isGreaterThanOrEqualTo(minDiff);
 
             const validBuyOrder = new BN(
               (parseFloat(lastSalePrice) - parseFloat(price))
@@ -116,8 +129,15 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
               (parseFloat(price) - parseFloat(lastSalePrice))
             ).isGreaterThan(0);
 
+            // DEBUG: Log first few and any invalid orders
+            if (index <= 3 || !validOrder) {
+              logger.info(`[DEBUG] ${marketSymbol} grid[${index}] - price: ${price}, quantity: ${quantity}, adjustedTotal: ${adjustedTotal}`);
+              logger.info(`[DEBUG] ${marketSymbol} grid[${index}] - priceDiff: ${priceDiff}, minDiff: ${minDiff}, validOrder: ${validOrder}, validBuy: ${validBuyOrder}, validSell: ${validSellOrder}`);
+            }
+
             // Prepare orders and push into a list
             if (validOrder) {
+              validOrderCount++;
               if (validSellOrder) {
                 const order = {
                   orderSide: ORDERSIDES.SELL,
@@ -137,12 +157,23 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                 buyToken += adjustedTotal;
                 this.oldOrders[i].push(order);
               }
+            } else {
+              invalidOrderCount++;
             }
           }
+
+          logger.info(`[DEBUG] ${marketSymbol} - Loop complete: validOrders=${validOrderCount}, invalidOrders=${invalidOrderCount}, ordersToPlace=${this.oldOrders[i].length}`);
+
           const sellTotal = new BN(sellToken).toFixed(bidPrecision);
           const buyTotal = new BN(buyToken).toFixed(askPrecision);
           const sellBalances  = await fetchTokenBalance(username, market.bid_token.contract, market.bid_token.code);
           const buyBalances = await fetchTokenBalance(username, market.ask_token.contract, market.ask_token.code);
+
+          logger.info(`[DEBUG] ${marketSymbol} - sellTotal: ${sellTotal} (type: ${typeof sellTotal}), sellBalances: ${sellBalances} (type: ${typeof sellBalances})`);
+          logger.info(`[DEBUG] ${marketSymbol} - buyTotal: ${buyTotal} (type: ${typeof buyTotal}), buyBalances: ${buyBalances} (type: ${typeof buyBalances})`);
+          logger.info(`[DEBUG] ${marketSymbol} - String comparison: sellTotal > sellBalances = ${sellTotal > sellBalances}, buyTotal > buyBalances = ${buyTotal > buyBalances}`);
+          logger.info(`[DEBUG] ${marketSymbol} - Numeric comparison: ${parseFloat(sellTotal)} > ${parseFloat(sellBalances)} = ${parseFloat(sellTotal) > parseFloat(sellBalances)}`);
+
           if(sellTotal > sellBalances || buyTotal > buyBalances) {
             const errorMsg = `LOW BALANCES - Current balance ${sellBalances} ${market.bid_token.code} - Expected ${sellTotal} ${market.bid_token.code}, Current balance ${buyBalances} ${market.ask_token.code} - Expected ${buyTotal} ${market.ask_token.code}`;
             logger.error(errorMsg);
@@ -158,9 +189,16 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
             });
             continue;
           }
+
+          logger.info(`[DEBUG] ${marketSymbol} - Passed balance check, checking order count: ${this.oldOrders[i].length} <= ${maxGrids} = ${this.oldOrders[i].length <= maxGrids}`);
+
           // Makesure to place only maxGrids order, as there is a possibility to place 1 additional order because of the non divisible configuration
           if (this.oldOrders[i].length <= maxGrids) {
+            logger.info(`[DEBUG] ${marketSymbol} - Placing ${this.oldOrders[i].length} orders...`);
             await this.placeOrders(this.oldOrders[i]);
+            logger.info(`[DEBUG] ${marketSymbol} - Orders placed successfully`);
+          } else {
+            logger.warn(`[DEBUG] ${marketSymbol} - SKIPPED: ordersToPlace (${this.oldOrders[i].length}) > maxGrids (${maxGrids})`);
           }
         } else if (openOrders.length > 0 && openOrders.length < gridLevels) {
           // compare open orders with old orders and placce counter orders for the executed orders
