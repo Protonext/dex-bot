@@ -92,7 +92,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           if (upperLimit.isLessThanOrEqualTo(priceTraded) && lowerLimit.isLessThanOrEqualTo(priceTraded)) index = 1;
           var sellToken = 0;
           var buyToken = 0;
-          for (; index < maxGrids; index += 1) {
+          for (; index <= maxGrids; index += 1) {
             const price = upperLimit
               .minus(gridSize.multipliedBy(index))
               .dividedBy(10 ** bidPrecision)

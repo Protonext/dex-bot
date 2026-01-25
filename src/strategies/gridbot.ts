@@ -13,11 +13,11 @@ const logFileName = './gridbot-logs-' + getUsername() + '.txt';
 const logger = getLogger();
 const config = getConfig();
 
-function logItem(item: string | object, label?: string ) {
-  if(typeof item === 'object') {
+function logItem(item: string | object, label?: string) {
+  if (typeof item === 'object') {
     item = JSON.stringify(item, null, 2);
   }
-  if(label) {
+  if (label) {
     item = `${label}: ${item}`;
   }
   fs.appendFileSync(logFileName, item + '\n\n');
@@ -33,14 +33,14 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
   private pairs: GridBotPair[] = [];
 
   async initialize(options?: BotConfig['gridBot']): Promise<void> {
-    if(options){
+    if (options) {
       this.pairs = this.parseEachPairConfig(options.pairs);
       this.pairs.forEach((_, i) => {
         this.oldOrders[i] = [];
       })
     }
   }
-  
+
   async trade(): Promise<void> {
     for (var i = 0; i < this.pairs.length; i++) {
       try {
@@ -48,17 +48,17 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
         const marketSymbol = this.pairs[i].symbol;
         const marketDetails = await this.getMarketDetails(marketSymbol);
         const { market } = marketDetails;
-        if(!market) {
+        if (!market) {
           console.log('Invalid market');
           continue;
         }
-        
+
         // Number of grid levels for the current pair
         const gridLevels = this.pairs[i].gridLevels;
         // Precision of the bid and ask tokens
         const bidPrecision = market.bid_token.precision;
         const askPrecision = market.ask_token.precision;
-        
+
         // Last sale price of the market
         const lastSalePrice = new BN(marketDetails.price).toFixed(askPrecision);
         const openOrders = await this.getOpenOrders(marketSymbol);
@@ -85,7 +85,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           let index = 0;
           let maxGrids = gridLevels;
           logger.info(`gridLevels ${gridLevels}, ${maxGrids}`);
-          if(!maxGrids)
+          if (!maxGrids)
             continue;
           const priceTraded = new BN(lastSalePrice).times(10 ** bidPrecision);
           logger.info(`upperLimit ${upperLimit}, lowerLimit: ${lowerLimit}, priceTraded: ${priceTraded}`);
@@ -95,8 +95,8 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           logger.info(`[DEBUG] ${marketSymbol} - lastSalePrice: ${lastSalePrice}, gridSize: ${gridSize.toString()}, gridPrice: ${gridPrice}`);
           logger.info(`[DEBUG] ${marketSymbol} - bidAmountPerLevel: ${bidAmountPerLevel.toString()}`);
 
-          if(upperLimit.isGreaterThanOrEqualTo(priceTraded) && lowerLimit.isGreaterThanOrEqualTo(priceTraded))  maxGrids -= 1;
-          if(upperLimit.isLessThanOrEqualTo(priceTraded) && lowerLimit.isLessThanOrEqualTo(priceTraded))   index = 1;
+          if (upperLimit.isGreaterThanOrEqualTo(priceTraded) && lowerLimit.isGreaterThanOrEqualTo(priceTraded)) maxGrids -= 1;
+          if (upperLimit.isLessThanOrEqualTo(priceTraded) && lowerLimit.isLessThanOrEqualTo(priceTraded)) index = 1;
 
           logger.info(`[DEBUG] ${marketSymbol} - After bounds check: index=${index}, maxGrids=${maxGrids}`);
 
@@ -105,7 +105,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           let validOrderCount = 0;
           let invalidOrderCount = 0;
 
-          for (; index < maxGrids; index += 1) {
+          for (; index <= maxGrids; index += 1) {
             const price = upperLimit
               .minus(gridSize.multipliedBy(index))
               .dividedBy(10 ** bidPrecision)
@@ -166,7 +166,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
 
           const sellTotal = new BN(sellToken).toFixed(bidPrecision);
           const buyTotal = new BN(buyToken).toFixed(askPrecision);
-          const sellBalances  = await fetchTokenBalance(username, market.bid_token.contract, market.bid_token.code);
+          const sellBalances = await fetchTokenBalance(username, market.bid_token.contract, market.bid_token.code);
           const buyBalances = await fetchTokenBalance(username, market.ask_token.contract, market.ask_token.code);
 
           logger.info(`[DEBUG] ${marketSymbol} - sellTotal: ${sellTotal} (type: ${typeof sellTotal}), sellBalances: ${sellBalances} (type: ${typeof sellBalances})`);
@@ -174,7 +174,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           logger.info(`[DEBUG] ${marketSymbol} - String comparison: sellTotal > sellBalances = ${sellTotal > sellBalances}, buyTotal > buyBalances = ${buyTotal > buyBalances}`);
           logger.info(`[DEBUG] ${marketSymbol} - Numeric comparison: ${parseFloat(sellTotal)} > ${parseFloat(sellBalances)} = ${parseFloat(sellTotal) > parseFloat(sellBalances)}`);
 
-          if(sellTotal > sellBalances || buyTotal > buyBalances) {
+          if (sellTotal > sellBalances || buyTotal > buyBalances) {
             const errorMsg = `LOW BALANCES - Current balance ${sellBalances} ${market.bid_token.code} - Expected ${sellTotal} ${market.bid_token.code}, Current balance ${buyBalances} ${market.ask_token.code} - Expected ${buyTotal} ${market.ask_token.code}`;
             logger.error(errorMsg);
             logger.info(` Overdrawn Balance - Not placing orders for ${market.bid_token.code}-${market.ask_token.code} `);
@@ -225,7 +225,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                 quantity: this.oldOrders[i][j].quantity,
                 price: this.oldOrders[i][j].price,
               });
-             
+
               if (this.oldOrders[i][j].orderSide === ORDERSIDES.BUY) {
                 const lowestAsk = this.getLowestAsk(currentOrders);
                 var sellPrice;
@@ -264,7 +264,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
                 else
                   buyPrice = new BN(highestBid)
                     .plus(gridPrice)
-                    .toFixed(askPrecision); 
+                    .toFixed(askPrecision);
                 const { adjustedTotal } = this.getQuantityAndAdjustedTotal(
                   buyPrice,
                   bidAmountPerLevel,
@@ -297,14 +297,14 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
 
   private parseEachPairConfig(pairs: BotConfig['gridBot']['pairs']): GridBotPair[] {
     const result: GridBotPair[] = [];
-    
+
     pairs.forEach((pair, idx) => {
       if (pair.symbol === undefined) {
         throw new Error(
           `Market symbol option is missing for gridBot pair with index ${idx} in default.json`
         );
       }
-  
+
       if (
         pair.upperLimit === undefined ||
         pair.lowerLimit === undefined ||
@@ -315,7 +315,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           `Options are missing for market or gridBot pair ${pair.symbol} in default.json`
         );
       }
-  
+
       result.push({
         symbol: pair.symbol,
         upperLimit: configValueToFloat(pair.upperLimit),
@@ -344,30 +344,30 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
     };
   }
 
-  private getHighestBid(orders: TradeOrder[]): BN | null{
+  private getHighestBid(orders: TradeOrder[]): BN | null {
     const buyOrders = orders.filter((order) => order.orderSide === ORDERSIDES.BUY);
     if (buyOrders.length === 0) return null;
-    
+
     buyOrders.sort((orderA, orderB): number => {
-      if(BN(orderA.price).isGreaterThan(BN(orderB.price))) return -1;
-      if(BN(orderA.price).isLessThan(BN(orderB.price))) return 1;
+      if (BN(orderA.price).isGreaterThan(BN(orderB.price))) return -1;
+      if (BN(orderA.price).isLessThan(BN(orderB.price))) return 1;
       return 0
     });
-  
+
     const highestBid = new BN(buyOrders[0].price);
     return highestBid;
   }
-  
+
   private getLowestAsk(orders: TradeOrder[]): BN | null {
     const sellOrders = orders.filter((order) => order.orderSide === ORDERSIDES.SELL);
     if (sellOrders.length === 0) return null;
-  
+
     sellOrders.sort((orderA, orderB): number => {
-      if(BN(orderA.price).isGreaterThan(BN(orderB.price))) return 1;
-      if(BN(orderA.price).isLessThan(BN(orderB.price))) return -1;
+      if (BN(orderA.price).isGreaterThan(BN(orderB.price))) return 1;
+      if (BN(orderA.price).isLessThan(BN(orderB.price))) return -1;
       return 0;
     });
-  
+
     const lowestAsk = new BN(sellOrders[0].price);
     return lowestAsk;
   }
