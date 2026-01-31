@@ -5,6 +5,7 @@ import { BotConfig, GridBotPair, TradeOrder, TradingStrategy } from '../interfac
 import { configValueToFloat, configValueToInt, getConfig, getLogger, getUsername } from '../utils';
 import { TradingStrategyBase } from './base';
 import { fetchTokenBalance } from '../dexapi';
+import { events } from '../events';
 import fs from "fs";
 
 const logFileName = './gridbot-logs-' + getUsername() + '.txt';
@@ -87,11 +88,22 @@ export class SplitReturnGridStrategy extends TradingStrategyBase implements Trad
             continue;
           const priceTraded = new BN(lastSalePrice).times(10 ** bidPrecision);
           logger.info(`upperLimit ${upperLimit}, lowerLimit: ${lowerLimit}, priceTraded: ${priceTraded}`);
-          logger.info(`lastSalePrice: ${lastSalePrice}, priceTraded: ${priceTraded.toFixed(bidPrecision)}`);
+
+          // DEBUG: Log precision and grid calculations
+          logger.info(`[DEBUG] ${marketSymbol} - bidPrecision: ${bidPrecision}, askPrecision: ${askPrecision}`);
+          logger.info(`[DEBUG] ${marketSymbol} - lastSalePrice: ${lastSalePrice}, gridSize: ${gridSize.toString()}, gridPrice: ${gridPrice}`);
+          logger.info(`[DEBUG] ${marketSymbol} - bidAmountPerLevel: ${bidAmountPerLevel.toString()}`);
+
           if (upperLimit.isGreaterThanOrEqualTo(priceTraded) && lowerLimit.isGreaterThanOrEqualTo(priceTraded)) maxGrids -= 1;
           if (upperLimit.isLessThanOrEqualTo(priceTraded) && lowerLimit.isLessThanOrEqualTo(priceTraded)) index = 1;
+
+          logger.info(`[DEBUG] ${marketSymbol} - After bounds check: index=${index}, maxGrids=${maxGrids}`);
+
           var sellToken = 0;
           var buyToken = 0;
+          let validOrderCount = 0;
+          let invalidOrderCount = 0;
+
           for (; index <= maxGrids; index += 1) {
             const price = upperLimit
               .minus(gridSize.multipliedBy(index))
@@ -103,9 +115,10 @@ export class SplitReturnGridStrategy extends TradingStrategyBase implements Trad
               bidPrecision,
               askPrecision
             );
-            const validOrder = new BN(
-              Math.abs(parseFloat(price) - parseFloat(lastSalePrice))
-            ).isGreaterThanOrEqualTo(+gridPrice / 2);
+
+            const priceDiff = Math.abs(parseFloat(price) - parseFloat(lastSalePrice));
+            const minDiff = +gridPrice / 2;
+            const validOrder = new BN(priceDiff).isGreaterThanOrEqualTo(minDiff);
 
             const validBuyOrder = new BN(
               (parseFloat(lastSalePrice) - parseFloat(price))
@@ -115,8 +128,15 @@ export class SplitReturnGridStrategy extends TradingStrategyBase implements Trad
               (parseFloat(price) - parseFloat(lastSalePrice))
             ).isGreaterThan(0);
 
+            // DEBUG: Log first few and any invalid orders
+            if (index <= 3 || !validOrder) {
+              logger.info(`[DEBUG] ${marketSymbol} grid[${index}] - price: ${price}, quantity: ${quantity}, adjustedTotal: ${adjustedTotal}`);
+              logger.info(`[DEBUG] ${marketSymbol} grid[${index}] - priceDiff: ${priceDiff}, minDiff: ${minDiff}, validOrder: ${validOrder}, validBuy: ${validBuyOrder}, validSell: ${validSellOrder}`);
+            }
+
             // Prepare orders and push into a list
             if (validOrder) {
+              validOrderCount++;
               if (validSellOrder) {
                 const order = {
                   orderSide: ORDERSIDES.SELL,
@@ -136,23 +156,54 @@ export class SplitReturnGridStrategy extends TradingStrategyBase implements Trad
                 buyToken += adjustedTotal;
                 this.oldOrders[i].push(order);
               }
+            } else {
+              invalidOrderCount++;
             }
           }
+
+          logger.info(`[DEBUG] ${marketSymbol} - Loop complete: validOrders=${validOrderCount}, invalidOrders=${invalidOrderCount}, ordersToPlace=${this.oldOrders[i].length}`);
           const sellTotal = new BN(sellToken).toFixed(bidPrecision);
           const buyTotal = new BN(buyToken).toFixed(askPrecision);
           const sellBalances = await fetchTokenBalance(username, market.bid_token.contract, market.bid_token.code);
           const buyBalances = await fetchTokenBalance(username, market.ask_token.contract, market.ask_token.code);
+
+          logger.info(`[DEBUG] ${marketSymbol} - sellTotal: ${sellTotal} (type: ${typeof sellTotal}), sellBalances: ${sellBalances} (type: ${typeof sellBalances})`);
+          logger.info(`[DEBUG] ${marketSymbol} - buyTotal: ${buyTotal} (type: ${typeof buyTotal}), buyBalances: ${buyBalances} (type: ${typeof buyBalances})`);
+          logger.info(`[DEBUG] ${marketSymbol} - String comparison: sellTotal > sellBalances = ${sellTotal > sellBalances}, buyTotal > buyBalances = ${buyTotal > buyBalances}`);
+          logger.info(`[DEBUG] ${marketSymbol} - Numeric comparison: ${parseFloat(sellTotal)} > ${parseFloat(sellBalances)} = ${parseFloat(sellTotal) > parseFloat(sellBalances)}`);
+
           if (sellTotal > sellBalances || buyTotal > buyBalances) {
-            logger.error(`LOW BALANCES - Current balance ${sellBalances} ${market.bid_token.code} - Expected ${sellTotal} ${market.bid_token.code}
-                      Current balance ${buyBalances} ${market.ask_token.code} - Expected ${buyTotal} ${market.ask_token.code}`);
+            const errorMsg = `LOW BALANCES - Current balance ${sellBalances} ${market.bid_token.code} - Expected ${sellTotal} ${market.bid_token.code}, Current balance ${buyBalances} ${market.ask_token.code} - Expected ${buyTotal} ${market.ask_token.code}`;
+            logger.error(errorMsg);
             logger.info(` Overdrawn Balance - Not placing orders for ${market.bid_token.code}-${market.ask_token.code} `);
+
+            // Emit balance low event
+            events.balanceLow(errorMsg, {
+              market: `${market.bid_token.code}-${market.ask_token.code}`,
+              sellRequired: sellTotal,
+              sellAvailable: sellBalances,
+              buyRequired: buyTotal,
+              buyAvailable: buyBalances,
+            });
             continue;
           }
+
+          logger.info(`[DEBUG] ${marketSymbol} - Passed balance check, checking order count: ${this.oldOrders[i].length} <= ${maxGrids} = ${this.oldOrders[i].length <= maxGrids}`);
+
           // Makesure to place only maxGrids order, as there is a possibility to place 1 additional order because of the non divisible configuration
           if (this.oldOrders[i].length <= maxGrids) {
-            console.log("Not Placing Orders");
-            // await this.placeOrders(this.oldOrders[i]);
+            logger.info(`[DEBUG] ${marketSymbol} - Placing ${this.oldOrders[i].length} orders...`);
+            await this.placeOrders(this.oldOrders[i]);
+            logger.info(`[DEBUG] ${marketSymbol} - Orders placed successfully`);
+          } else {
+            logger.warn(`[DEBUG] ${marketSymbol} - SKIPPED: ordersToPlace (${this.oldOrders[i].length}) > maxGrids (${maxGrids})`);
           }
+        } else if (openOrders.length === 0) {
+          // Recovery: oldOrders exist in memory but no orders on exchange
+          // This can happen if orders expired, were cancelled, or failed to place
+          logger.warn(`No open orders found but oldOrders exists in memory. Resetting grid for ${marketSymbol}`);
+          this.oldOrders[i] = [];
+          // Next iteration will re-initialize the grid
         } else if (openOrders.length > 0 && openOrders.length < gridLevels) {
           // compare open orders with old orders and placce counter orders for the executed orders
           let currentOrders: TradeOrder[] = openOrders.map((order) => ({
@@ -167,8 +218,17 @@ export class SplitReturnGridStrategy extends TradingStrategyBase implements Trad
                 openOrders.price === this.oldOrders[i][j].price
             );
             if (!newOrder) {
-              const buySellString = "Completed " + (this.oldOrders[i][j].orderSide == ORDERSIDES.BUY ? "BUY" : (this.oldOrders[i][j].orderSide == ORDERSIDES.SELL ? "SELL" : "INVALID")) + " order for " + this.oldOrders[i][j].quantity + " " + this.oldOrders[i][j].marketSymbol + " at " + this.oldOrders[i][j].price;
+              const orderSideStr = this.oldOrders[i][j].orderSide == ORDERSIDES.BUY ? "BUY" : (this.oldOrders[i][j].orderSide == ORDERSIDES.SELL ? "SELL" : "INVALID");
+              const buySellString = "Completed " + orderSideStr + " order for " + this.oldOrders[i][j].quantity + " " + this.oldOrders[i][j].marketSymbol + " at " + this.oldOrders[i][j].price;
               logger.info(buySellString);
+
+              // Emit order filled event
+              events.orderFilled(buySellString, {
+                market: this.oldOrders[i][j].marketSymbol,
+                side: orderSideStr,
+                quantity: this.oldOrders[i][j].quantity,
+                price: this.oldOrders[i][j].price,
+              });
 
               logItem(buySellString);
               logItem({
@@ -277,14 +337,18 @@ export class SplitReturnGridStrategy extends TradingStrategyBase implements Trad
               }
             }
           }
-          // await this.placeOrders(latestOrders);
+          if (latestOrders.length > 0) {
+            logger.info(`Placing ${latestOrders.length} counter orders`);
+            await this.placeOrders(latestOrders);
+          }
           // Update old orders for next round of inspection
-          console.log("Latest Orders", latestOrders);
-          console.log("Finishing Loop");
+          logger.info(`Finished processing ${marketSymbol}, updating oldOrders with ${currentOrders.length} orders`);
           this.oldOrders[i] = currentOrders;
         }
       } catch (error) {
-        logger.error((error as Error).message);
+        const errorMsg = (error as Error).message;
+        logger.error(errorMsg);
+        events.botError(`SplitReturnGridBot error: ${errorMsg}`, { error: errorMsg });
       }
     }
   }
