@@ -48,11 +48,14 @@ export interface BotConfig {
     channelId: string;
     cancelOpenOrdersOnExit: boolean;
     gridPlacement: boolean;
-    strategy: 'gridBot' | 'marketMaker' | 'swapper';
+    strategy: 'gridBot' | 'gridBotSplitReturnPreference' | 'marketMaker' | 'swapper';
     marketMaker: {
         pairs: MarketMakerPair[];
     };
     gridBot: {
+        pairs: GridBotPairRaw[]
+    };
+    gridBotSplitReturnPreference: {
         pairs: GridBotPairRaw[]
     };
     swapper: {

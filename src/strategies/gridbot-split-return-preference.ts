@@ -26,11 +26,11 @@ function logItem(item: string | object, label?: string) {
  * Grid Trading Bots are programs that allow users to automatically buy low and sell high within a pre-set price range.
  * The number of orders is determined by config values like limits, gridLevels, refer config/default.json
  */
-export class GridBotStrategy extends TradingStrategyBase implements TradingStrategy {
+export class SplitReturnGridStrategy extends TradingStrategyBase implements TradingStrategy {
   private oldOrders: TradeOrder[][] = []
   private pairs: GridBotPair[] = [];
 
-  async initialize(options?: BotConfig['gridBot']): Promise<void> {
+  async initialize(options?: BotConfig['gridBotSplitReturnPreference']): Promise<void> {
     if (options) {
       this.pairs = this.parseEachPairConfig(options.pairs);
       this.pairs.forEach((_, i) => {
@@ -289,7 +289,7 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
     }
   }
 
-  private parseEachPairConfig(pairs: BotConfig['gridBot']['pairs']): GridBotPair[] {
+  private parseEachPairConfig(pairs: BotConfig['gridBotSplitReturnPreference']['pairs']): GridBotPair[] {
     const result: GridBotPair[] = [];
 
     pairs.forEach((pair, idx) => {
