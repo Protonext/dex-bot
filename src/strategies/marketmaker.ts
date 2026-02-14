@@ -4,7 +4,7 @@ import { BigNumber as BN } from 'bignumber.js';
 import { ORDERSIDES } from '../core/constants';
 import { BotConfig, MarketMakerPair, TradeOrder, TradingStrategy } from '../interfaces';
 import { getLogger } from '../utils';
-import { MarketDetails, TradingStrategyBase } from './base';
+import { MarketDetails, TradingStrategyBase, OrderStateEntry } from './base';
 import { fetchTokenBalance } from '../dexapi';
 import { events } from '../events';
 
@@ -26,6 +26,8 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
   }
  
   async trade() {
+    const orderStateEntries: OrderStateEntry[] = [];
+
     for (let i = 0; i < this.pairs.length; ++i) {
       logger.info(`Checking ${this.pairs[i].symbol} market maker orders on account ${this.username}`);
 
@@ -35,6 +37,13 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
         // any orders to place?
         const gridLevels = new BN(this.getGridLevels(this.pairs[i].symbol));
         const buys = openOrders.filter((order) => order.order_side === ORDERSIDES.BUY);
+
+        // Track order state for dashboard state file
+        orderStateEntries.push({
+          symbol: this.pairs[i].symbol,
+          orders: openOrders,
+          expectedOrders: gridLevels.toNumber() * 2, // Both buy and sell sides
+        });
         const sells = openOrders.filter((order) => order.order_side === ORDERSIDES.SELL);
         if (buys.length >= gridLevels.toNumber() && sells.length >= gridLevels.toNumber()) {
           logger.info(`No change - there are enough orders(as per the grid levels in config) on the orderbook for ${this.pairs[i].symbol}`);
@@ -50,6 +59,8 @@ export class MarketMakerStrategy extends TradingStrategyBase implements TradingS
         events.botError(`MarketMaker error: ${errorMsg}`, { error: errorMsg });
       }
     }
+
+    this.writeOrderState(orderStateEntries);
   }
 
   /**

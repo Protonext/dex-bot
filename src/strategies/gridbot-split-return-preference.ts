@@ -3,7 +3,7 @@ import { BigNumber as BN } from 'bignumber.js';
 import { ORDERSIDES } from '../core/constants';
 import { BotConfig, GridBotPair, TradeOrder, TradingStrategy } from '../interfaces';
 import { configValueToFloat, configValueToInt, getConfig, getLogger, getUsername } from '../utils';
-import { TradingStrategyBase } from './base';
+import { TradingStrategyBase, OrderStateEntry } from './base';
 import { fetchTokenBalance } from '../dexapi';
 import { events } from '../events';
 import fs from "fs";
@@ -41,6 +41,8 @@ export class SplitReturnGridStrategy extends TradingStrategyBase implements Trad
   }
 
   async trade(): Promise<void> {
+    const orderStateEntries: OrderStateEntry[] = [];
+
     for (var i = 0; i < this.pairs.length; i++) {
       try {
         console.log("Checking for trades");
@@ -61,6 +63,13 @@ export class SplitReturnGridStrategy extends TradingStrategyBase implements Trad
         // Last sale price of the market
         const lastSalePrice = new BN(marketDetails.price).toFixed(askPrecision);
         const openOrders = await this.getOpenOrders(marketSymbol);
+
+        // Track order state for dashboard state file
+        orderStateEntries.push({
+          symbol: marketSymbol,
+          orders: openOrders,
+          expectedOrders: gridLevels,
+        });
         // Upper and lower limit for trading within the current pair
         const upperLimit = new BN(
           this.pairs[i].upperLimit * 10 ** bidPrecision
@@ -351,6 +360,8 @@ export class SplitReturnGridStrategy extends TradingStrategyBase implements Trad
         events.botError(`SplitReturnGridBot error: ${errorMsg}`, { error: errorMsg });
       }
     }
+
+    this.writeOrderState(orderStateEntries);
   }
 
   private parseEachPairConfig(pairs: BotConfig['gridBotSplitReturnPreference']['pairs']): GridBotPair[] {

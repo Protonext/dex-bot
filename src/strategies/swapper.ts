@@ -166,6 +166,9 @@ export class SwapBotStrategy extends TradingStrategyBase implements TradingStrat
                 events.botError(`Swapper error: ${errorMsg}`, { error: errorMsg });
             }
         }
+
+        // Swapper doesn't use limit orders, write empty state
+        this.writeOrderState([]);
     }
 
     private parseEachPairConfig(pairs: BotConfig['swapper']['pairs']): SwapBotPair[] {
