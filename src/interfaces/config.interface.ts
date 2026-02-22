@@ -22,6 +22,13 @@ export interface MarketMakerPair {
     bidAmountPerLevel: number;
 }
 
+export interface SpikeBotPair {
+    symbol: string;
+    deviationPct: number;
+    levels: number;
+    orderAmount: number;
+}
+
 export interface SwapBotPair {
     symbol: string;
     quote: string;
@@ -48,7 +55,7 @@ export interface BotConfig {
     channelId: string;
     cancelOpenOrdersOnExit: boolean;
     gridPlacement: boolean;
-    strategy: 'gridBot' | 'gridBotSplitReturnPreference' | 'marketMaker' | 'swapper';
+    strategy: 'gridBot' | 'gridBotSplitReturnPreference' | 'marketMaker' | 'swapper' | 'spikeBot';
     marketMaker: {
         pairs: MarketMakerPair[];
     };
@@ -60,6 +67,11 @@ export interface BotConfig {
     };
     swapper: {
         pairs: SwapBotPair[];
+    };
+    spikeBot: {
+        pairs: SpikeBotPair[];
+        maWindow: number;
+        rebalanceThresholdPct: number;
     };
     rpc: {
         privateKeyPermission: string;

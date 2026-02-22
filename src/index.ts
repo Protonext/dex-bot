@@ -74,7 +74,7 @@ const main = async () => {
       process.on('SIGQUIT', signalHandler)
     }
 
-    if (config.strategy !== 'swapper') {
+    if (config.strategy !== 'swapper' && config.strategy !== 'spikeBot') {
       await currentStrategy.trade()
       logger.info(`Waiting for few seconds before fetching the placed orders`);
       await delay(15000)
