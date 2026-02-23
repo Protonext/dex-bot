@@ -186,6 +186,15 @@ const withdrawAction = () => ({
 
 
 /**
+ * Withdraw all funds from the DEX escrow back to the user's wallet
+ */
+export const withdrawAll = async (): Promise<void> => {
+  logger.info('Withdrawing all funds from DEX escrow');
+  const response = await transact([withdrawAction()]);
+  return response;
+};
+
+/**
  * Cancel a single order
  */
 export const cancelOrder = async (orderId: string): Promise<void> => {

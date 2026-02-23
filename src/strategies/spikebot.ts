@@ -10,6 +10,10 @@ import { Market } from '@proton/wrap-constants';
 
 const logger = getLogger();
 
+function delay(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 interface PairState {
   config: SpikeBotPair;
   priceHistory: number[];
@@ -148,6 +152,8 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           if (driftPct > this.rebalanceThresholdPct) {
             logger.info(`[SpikeBot] ${symbol} MA drift ${driftPct.toFixed(2)}% exceeds threshold ${this.rebalanceThresholdPct}% - rebalancing`);
             await this.cancelPairOrders(symbol, openOrders);
+            await dexrpc.withdrawAll();
+            await delay(2000);
             state.spikeOrders = [];
             state.takeProfitOrders = [];
             // Fall through to initial placement below
@@ -156,6 +162,14 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
 
         // 7. Initial placement (no tracked spike orders & MA ready)
         if (state.spikeOrders.length === 0) {
+          // Cancel any stale on-chain orders from a previous run and withdraw funds
+          if (openOrders.length > 0) {
+            logger.info(`[SpikeBot] ${symbol} clearing ${openOrders.length} stale orders before fresh placement`);
+            await this.cancelPairOrders(symbol, openOrders);
+            await dexrpc.withdrawAll();
+            await delay(2000);
+          }
+
           const spikeOrders = this.buildSpikeOrders(symbol, state.currentMA, state.config, market);
           if (spikeOrders.length > 0) {
             logger.info(`[SpikeBot] ${symbol} placing ${spikeOrders.length} spike orders around MA ${state.currentMA.toFixed(market.ask_token.precision)}`);
