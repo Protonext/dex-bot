@@ -1,6 +1,6 @@
 import { getConfig, getLogger } from './utils';
 import * as dexapi from './dexapi';
-import * as dexrpc from './dexrpc';
+
 import { getStrategy } from './strategies';
 import readline from 'readline';
 import { postSlackMsg } from './slackapi';
@@ -63,9 +63,9 @@ const main = async () => {
       }
 
       async function signalHandler() {
-        events.botStopped('Bot shutting down - cancelling all orders');
+        events.botStopped('Bot shutting down - cancelling instance orders');
         events.shutdown();
-        await dexrpc.cancelAllOrders();
+        await currentStrategy.cancelOwnOrders();
         process.exit();
       }
 

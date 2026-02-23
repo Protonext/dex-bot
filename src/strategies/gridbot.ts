@@ -1,7 +1,7 @@
 // grid bot strategy
 import { BigNumber as BN } from 'bignumber.js';
 import { ORDERSIDES } from '../core/constants';
-import { BotConfig, GridBotPair, TradeOrder, TradingStrategy } from '../interfaces';
+import { BotConfig, GridBotPair, TradeOrder, TrackedOrder, TradingStrategy } from '../interfaces';
 import { configValueToFloat, configValueToInt, getConfig, getLogger, getUsername } from '../utils';
 import { TradingStrategyBase, OrderStateEntry } from './base';
 import { fetchTokenBalance } from '../dexapi';
@@ -29,7 +29,7 @@ function logItem(item: string | object, label?: string) {
  * The number of orders is determined by config values like limits, gridLevels, refer config/default.json
  */
 export class GridBotStrategy extends TradingStrategyBase implements TradingStrategy {
-  private oldOrders: TradeOrder[][] = []
+  private oldOrders: TrackedOrder[][] = []
   private pairs: GridBotPair[] = [];
 
   async initialize(options?: BotConfig['gridBot']): Promise<void> {
@@ -37,7 +37,19 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
       this.pairs = this.parseEachPairConfig(options.pairs);
       this.pairs.forEach((_, i) => {
         this.oldOrders[i] = [];
-      })
+      });
+
+      // Recover tracked orders from disk
+      const persisted = this.loadTrackedOrders();
+      if (persisted.length > 0) {
+        for (const order of persisted) {
+          const pairIdx = this.pairs.findIndex(p => p.symbol === order.marketSymbol);
+          if (pairIdx >= 0) {
+            this.oldOrders[pairIdx].push(order);
+          }
+        }
+        logger.info(`[GridBot] Recovered ${persisted.length} tracked orders from disk`);
+      }
     }
   }
 
@@ -63,7 +75,12 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
 
         // Last sale price of the market
         const lastSalePrice = new BN(marketDetails.price).toFixed(askPrecision);
-        const openOrders = await this.getOpenOrders(marketSymbol);
+
+        // Fetch open orders filtered to this instance's tracked IDs
+        const trackedIds = new Set<string>(
+          this.oldOrders[i].map(o => o.orderId).filter((id): id is string => id !== undefined)
+        );
+        const openOrders = await this.getOwnOpenOrders(marketSymbol, trackedIds);
 
         // Track order state for dashboard state file
         orderStateEntries.push({
@@ -205,23 +222,26 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
           if (this.oldOrders[i].length <= maxGrids) {
             logger.info(`[DEBUG] ${marketSymbol} - Placing ${this.oldOrders[i].length} orders...`);
             await this.placeOrders(this.oldOrders[i]);
+            this.oldOrders[i] = await this.resolveOrderIds(this.oldOrders[i], marketSymbol);
             logger.info(`[DEBUG] ${marketSymbol} - Orders placed successfully`);
           } else {
             logger.warn(`[DEBUG] ${marketSymbol} - SKIPPED: ordersToPlace (${this.oldOrders[i].length}) > maxGrids (${maxGrids})`);
           }
         } else if (openOrders.length > 0 && openOrders.length < gridLevels) {
-          // compare open orders with old orders and placce counter orders for the executed orders
-          let currentOrders: TradeOrder[] = openOrders.map((order) => ({
+          // compare open orders with old orders and place counter orders for the executed orders
+          let currentOrders: TrackedOrder[] = openOrders.map((order) => ({
             orderSide: order.order_side,
             price: order.price,
             quantity: order.quantity_curr,
             marketSymbol,
+            orderId: order.order_id,
           }));
           for (var j = 0; j < this.oldOrders[i].length; j++) {
-            const newOrder = openOrders.find(
-              (openOrders) =>
-                openOrders.price === this.oldOrders[i][j].price
-            );
+            // Use order ID for fill detection when available, fall back to price
+            const tracked = this.oldOrders[i][j];
+            const newOrder = tracked.orderId
+              ? openOrders.find(o => o.order_id === tracked.orderId)
+              : openOrders.find(o => o.price === tracked.price);
             if (!newOrder) {
               const orderSideStr = this.oldOrders[i][j].orderSide == ORDERSIDES.BUY ? "BUY" : (this.oldOrders[i][j].orderSide == ORDERSIDES.SELL ? "SELL" : "INVALID");
               const buySellString = "Completed " + orderSideStr + " order for " + this.oldOrders[i][j].quantity + " " + this.oldOrders[i][j].marketSymbol + " at " + this.oldOrders[i][j].price;
@@ -293,6 +313,15 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
             }
           }
           await this.placeOrders(latestOrders);
+          // Resolve IDs for the newly placed counter orders
+          const resolvedLatest = await this.resolveOrderIds(latestOrders, marketSymbol);
+          // Merge resolved IDs back into currentOrders
+          for (const resolved of resolvedLatest) {
+            const idx = currentOrders.findIndex(o => o.price === resolved.price && o.orderSide === resolved.orderSide && !o.orderId);
+            if (idx >= 0) {
+              currentOrders[idx] = resolved;
+            }
+          }
           // Update old orders for next round of inspection
           this.oldOrders[i] = currentOrders;
         }
@@ -303,7 +332,24 @@ export class GridBotStrategy extends TradingStrategyBase implements TradingStrat
       }
     }
 
+    // Persist tracked orders for crash recovery
+    this.persistAllTrackedOrders();
+
     this.writeOrderState(orderStateEntries);
+  }
+
+  async cancelOwnOrders(): Promise<void> {
+    const allTracked: TrackedOrder[] = this.oldOrders.flat();
+    if (allTracked.length > 0) {
+      logger.info(`[GridBot] Cancelling ${allTracked.length} tracked orders on shutdown`);
+      await this.cancelTrackedOrders(allTracked);
+    }
+    this.cleanupTrackedOrdersFile();
+  }
+
+  private persistAllTrackedOrders(): void {
+    const allTracked: TrackedOrder[] = this.oldOrders.flat();
+    this.saveTrackedOrders('gridbot', allTracked);
   }
 
   private parseEachPairConfig(pairs: BotConfig['gridBot']['pairs']): GridBotPair[] {

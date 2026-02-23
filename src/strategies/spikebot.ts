@@ -1,7 +1,7 @@
 // spike bot strategy
 import { BigNumber as BN } from 'bignumber.js';
 import { ORDERSIDES } from '../core/constants';
-import { BotConfig, SpikeBotPair, TradeOrder, TradingStrategy } from '../interfaces';
+import { BotConfig, SpikeBotPair, TradeOrder, TrackedOrder, TradingStrategy } from '../interfaces';
 import { getLogger, getUsername } from '../utils';
 import { TradingStrategyBase, OrderStateEntry } from './base';
 import * as dexrpc from '../dexrpc';
@@ -19,8 +19,8 @@ interface PairState {
   priceHistory: number[];
   currentMA: number;
   lastOrderMA: number;
-  spikeOrders: TradeOrder[];
-  takeProfitOrders: TradeOrder[];
+  spikeOrders: TrackedOrder[];
+  takeProfitOrders: TrackedOrder[];
 }
 
 /**
@@ -45,6 +45,23 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         spikeOrders: [],
         takeProfitOrders: [],
       }));
+
+      // Recover tracked orders from disk
+      const persisted = this.loadTrackedOrders();
+      if (persisted.length > 0 && this.pairStates.length > 0) {
+        // Distribute loaded orders back to their pair states by marketSymbol
+        for (const order of persisted) {
+          const pairState = this.pairStates.find(s => s.config.symbol === order.marketSymbol);
+          if (!pairState) continue;
+          // We stored a _type marker to distinguish spike vs take-profit
+          if ((order as any)._type === 'takeProfit') {
+            pairState.takeProfitOrders.push(order);
+          } else {
+            pairState.spikeOrders.push(order);
+          }
+        }
+        logger.info(`[SpikeBot] Recovered ${persisted.length} tracked orders from disk`);
+      }
     }
   }
 
@@ -75,8 +92,12 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         state.currentMA = this.calculateMA(state.priceHistory);
         logger.info(`[SpikeBot] ${symbol} - Price: ${latestPrice}, MA: ${state.currentMA.toFixed(market.ask_token.precision)}`);
 
-        // 3. Fetch open orders
-        const openOrders = await this.getOpenOrders(symbol);
+        // 3. Fetch open orders (filtered to this instance's tracked IDs)
+        const allTracked = [...state.spikeOrders, ...state.takeProfitOrders];
+        const trackedIds = new Set<string>(
+          allTracked.map(o => o.orderId).filter((id): id is string => id !== undefined)
+        );
+        const openOrders = await this.getOwnOpenOrders(symbol, trackedIds);
 
         orderStateEntries.push({
           symbol,
@@ -87,12 +108,13 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         // 4. Fill detection - spike orders
         if (state.spikeOrders.length > 0) {
           const newOrders: TradeOrder[] = [];
-          const remainingSpike: TradeOrder[] = [];
+          const remainingSpike: TrackedOrder[] = [];
 
           for (const tracked of state.spikeOrders) {
-            const stillOpen = openOrders.find(
-              o => o.price === tracked.price && o.order_side === tracked.orderSide
-            );
+            // Use order ID for fill detection when available, fall back to price+side
+            const stillOpen = tracked.orderId
+              ? openOrders.find(o => o.order_id === tracked.orderId)
+              : openOrders.find(o => o.price === tracked.price && o.order_side === tracked.orderSide);
 
             if (!stillOpen) {
               // Spike order was filled
@@ -116,19 +138,20 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
 
           if (newOrders.length > 0) {
             await this.placeOrders(newOrders);
-            state.takeProfitOrders.push(...newOrders);
+            const resolvedTP = await this.resolveOrderIds(newOrders, symbol);
+            state.takeProfitOrders.push(...resolvedTP);
           }
           state.spikeOrders = remainingSpike;
         }
 
         // 5. Fill detection - take-profit orders
         if (state.takeProfitOrders.length > 0) {
-          const remainingTP: TradeOrder[] = [];
+          const remainingTP: TrackedOrder[] = [];
 
           for (const tracked of state.takeProfitOrders) {
-            const stillOpen = openOrders.find(
-              o => o.price === tracked.price && o.order_side === tracked.orderSide
-            );
+            const stillOpen = tracked.orderId
+              ? openOrders.find(o => o.order_id === tracked.orderId)
+              : openOrders.find(o => o.price === tracked.price && o.order_side === tracked.orderSide);
 
             if (!stillOpen) {
               const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
@@ -174,7 +197,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           if (spikeOrders.length > 0) {
             logger.info(`[SpikeBot] ${symbol} placing ${spikeOrders.length} spike orders around MA ${state.currentMA.toFixed(market.ask_token.precision)}`);
             await this.placeOrders(spikeOrders);
-            state.spikeOrders = spikeOrders;
+            state.spikeOrders = await this.resolveOrderIds(spikeOrders, symbol);
             state.lastOrderMA = state.currentMA;
           }
         }
@@ -185,7 +208,35 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
       }
     }
 
+    // Persist tracked orders for crash recovery
+    this.persistAllTrackedOrders();
+
     this.writeOrderState(orderStateEntries);
+  }
+
+  async cancelOwnOrders(): Promise<void> {
+    const allTracked: TrackedOrder[] = [];
+    for (const state of this.pairStates) {
+      allTracked.push(...state.spikeOrders, ...state.takeProfitOrders);
+    }
+    if (allTracked.length > 0) {
+      logger.info(`[SpikeBot] Cancelling ${allTracked.length} tracked orders on shutdown`);
+      await this.cancelTrackedOrders(allTracked);
+    }
+    this.cleanupTrackedOrdersFile();
+  }
+
+  private persistAllTrackedOrders(): void {
+    const allTracked: (TrackedOrder & { _type?: string })[] = [];
+    for (const state of this.pairStates) {
+      for (const o of state.spikeOrders) {
+        allTracked.push({ ...o, _type: 'spike' });
+      }
+      for (const o of state.takeProfitOrders) {
+        allTracked.push({ ...o, _type: 'takeProfit' });
+      }
+    }
+    this.saveTrackedOrders('spikebot', allTracked as TrackedOrder[]);
   }
 
   private async cancelPairOrders(symbol: string, openOrders: { order_id: string | number }[]): Promise<void> {
