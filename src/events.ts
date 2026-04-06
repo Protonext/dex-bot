@@ -20,7 +20,8 @@ export type EventType =
   | 'swap_executed'
   | 'config_loaded'
   | 'market_data_error'
-  | 'rpc_error';
+  | 'rpc_error'
+  | 'health_restart';
 
 export interface DashboardConfig {
   url: string;
@@ -165,7 +166,7 @@ class EventEmitter {
     this.queue.push(payload);
 
     // Immediately flush high-priority events
-    if (severity === 'error' || type === 'bot_started' || type === 'bot_stopped') {
+    if (severity === 'error' || type === 'bot_started' || type === 'bot_stopped' || type === 'health_restart') {
       this.flush();
     }
   }
@@ -238,6 +239,10 @@ class EventEmitter {
 
   rpcError(message: string, data?: Record<string, unknown>): void {
     this.emit('error', 'rpc_error', 'error', message, data);
+  }
+
+  healthRestart(message: string, data?: Record<string, unknown>): void {
+    this.emit('system', 'health_restart', 'error', message, data);
   }
 
   // Generic event

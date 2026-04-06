@@ -4,6 +4,7 @@ import { BigNumber } from 'bignumber.js';
 import { FILLTYPES, ORDERSIDES, ORDERTYPES } from './core/constants';
 import * as dexapi from './dexapi';
 import { getConfig, getLogger, getUsername } from './utils';
+import { healthMonitor } from './health-monitor';
 
 type OrderAction = Serialize.Action
 
@@ -13,7 +14,8 @@ const config = getConfig();
 const { endpoints, privateKey, privateKeyPermission } = config.rpc;
 const username = getUsername();
 
-let signatureProvider = process.env.npm_lifecycle_event === 'test' ? undefined : new JsSignatureProvider([privateKey]);
+const isPaperOrTest = process.env.npm_lifecycle_event === 'test' || process.env.BOT_MODE === 'paper';
+let signatureProvider = isPaperOrTest ? undefined : new JsSignatureProvider([privateKey]);
 let actions: OrderAction[] = [];
 
 // Initialize
@@ -23,10 +25,34 @@ const api = new Api({
   signatureProvider
 });
 
-const apiTransact = (actions: Serialize.Action[]) => api.transact({ actions }, {
-  blocksBehind: 300,
-  expireSeconds: 3000,
-});
+const apiTransact = async (actions: Serialize.Action[], maxRetries = 3) => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await api.transact({ actions }, {
+        blocksBehind: 300,
+        expireSeconds: 3000,
+      });
+      healthMonitor.recordSuccess('rpc');
+      return result;
+    } catch (error) {
+      const msg = (error as Error).message || String(error);
+      const isTransient = msg.includes('invalid json response body')
+        || msg.includes('Unexpected token')
+        || msg.includes('ECONNRESET')
+        || msg.includes('ETIMEDOUT')
+        || msg.includes('fetch failed');
+
+      if (isTransient && attempt < maxRetries) {
+        const delayMs = 1000 * Math.pow(2, attempt - 1); // 1s, 2s, 4s
+        logger.warn(`[RPC] Transient error (attempt ${attempt}/${maxRetries}), retrying in ${delayMs}ms: ${msg}`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        continue;
+      }
+      healthMonitor.recordError('rpc', msg);
+      throw error;
+    }
+  }
+};
 
 const authorization = [{
   actor: username,
@@ -236,30 +262,38 @@ export const cancelAllOrders = async (): Promise<void> => {
  * Get the current swaps available on-chain
  */
 export const getSwaps = async (): Promise<{ [key: string]: any }> => {
-  const rows: { more: boolean, next_key: string, rows: { active: boolean, amplifier: boolean, creator: string, fee: { exchange_fee: number, add_liquidity_fee: number, remove_liquidity_fee: number }, hash: string, lt_symbol: string, memo: string, pool1: { quantity: string, contract: string }, pool2: { quantity: string, contract: string } }[] } =
-    await api.rpc.get_table_rows({
-      json: true,
-      code: "proton.swaps",
-      scope: "proton.swaps",
-      table: "pools",
-      index_position: 1,
-      key_type: "i64",
-      limit: -1,
-      reverse: false,
-      show_payer: false
-    });
+  try {
+    const rows: { more: boolean, next_key: string, rows: { active: boolean, amplifier: boolean, creator: string, fee: { exchange_fee: number, add_liquidity_fee: number, remove_liquidity_fee: number }, hash: string, lt_symbol: string, memo: string, pool1: { quantity: string, contract: string }, pool2: { quantity: string, contract: string } }[] } =
+      await api.rpc.get_table_rows({
+        json: true,
+        code: "proton.swaps",
+        scope: "proton.swaps",
+        table: "pools",
+        index_position: 1,
+        key_type: "i64",
+        limit: -1,
+        reverse: false,
+        show_payer: false
+      });
 
-  if (rows.rows) {
-    logger.info(`Fetched ${rows.rows.length} swap pools from proton.swaps`);
-    const returnObj: { [key: string]: any } = {}
-    rows.rows.forEach((r) => {
-      let cleaned_symbol = r.lt_symbol.split(",")[1];
-      returnObj[cleaned_symbol] = r;
-    });
-    return returnObj;
+    healthMonitor.recordSuccess('rpc');
+
+    if (rows.rows) {
+      logger.info(`Fetched ${rows.rows.length} swap pools from proton.swaps`);
+      const returnObj: { [key: string]: any } = {}
+      rows.rows.forEach((r) => {
+        let cleaned_symbol = r.lt_symbol.split(",")[1];
+        returnObj[cleaned_symbol] = r;
+      });
+      return returnObj;
+    }
+
+    return {};
+  } catch (error) {
+    const msg = (error as Error).message || String(error);
+    healthMonitor.recordError('rpc', msg);
+    throw error;
   }
-
-  return {};
 }
 
 export const submitSwapRequest = async (sendAmount: string, sendToken: string, sendContract: string, pairSymbol: string) => {
