@@ -1,5 +1,6 @@
 import { prepareLimitOrder, submitProcessAction, submitOrders, cancelOrder } from "../dexrpc";
 import { TradeOrder, TrackedOrder, TradingStrategy } from "../interfaces";
+import type { MockEngine } from "../mock-engine";
 import * as dexapi from "../dexapi";
 import { getConfig, getLogger, getUsername } from "../utils";
 import { Market, OrderHistory } from '@proton/wrap-constants';
@@ -34,8 +35,28 @@ export abstract class TradingStrategyBase implements TradingStrategy {
 
   protected dexAPI = dexapi;
   protected username = getUsername();
+  public mockEngine?: MockEngine;
 
   protected async placeOrders(orders: TradeOrder[], delayTime = 2000): Promise<void> {
+    if (this.mockEngine) {
+      for (const order of orders) {
+        const market = this.dexAPI.getMarketBySymbol(order.marketSymbol);
+        if (market) {
+          this.mockEngine.placeOrder(order, market);
+        }
+      }
+      events.gridPlaced(`[Paper] Placed ${orders.length} mock orders`, {
+        mode: 'paper',
+        orders: orders.map(o => ({
+          market: o.marketSymbol,
+          side: o.orderSide === 1 ? 'BUY' : 'SELL',
+          quantity: o.quantity,
+          price: o.price,
+        })),
+      });
+      return;
+    }
+
     for(var i = 1; i <= orders.length; i++) {
         const order = orders[i-1];
         await prepareLimitOrder(
@@ -66,6 +87,21 @@ export abstract class TradingStrategyBase implements TradingStrategy {
   }
 
   protected async getOpenOrders(marketSymbol: string) {
+    if (this.mockEngine) {
+      const mockOrders = this.mockEngine.getOpenOrders(marketSymbol);
+      console.log(`[Paper] Open orders size for pair ${marketSymbol} ${mockOrders.length}`);
+      return mockOrders.map(o => ({
+        order_id: o.mockId,
+        market_id: 0,
+        account: this.username,
+        order_type: 1,
+        order_side: o.orderSide,
+        quantity: o.quantity,
+        price: o.price,
+        created_at: o.placedAt || new Date().toISOString(),
+      } as unknown as OrderHistory));
+    }
+
     const market = this.dexAPI.getMarketBySymbol(marketSymbol);
     if (market === undefined) {
       throw new Error(`Market ${marketSymbol} does not exist`);
@@ -96,6 +132,15 @@ export abstract class TradingStrategyBase implements TradingStrategy {
   }
 
   protected async resolveOrderIds(placedOrders: TradeOrder[], symbol: string): Promise<TrackedOrder[]> {
+    if (this.mockEngine) {
+      // Mock orders already have IDs from placeOrder()
+      return this.mockEngine.getOpenOrders(symbol).map(o => ({
+        ...o,
+        orderId: o.mockId,
+        placedAt: o.placedAt || new Date().toISOString(),
+      }));
+    }
+
     const onChainOrders = await this.dexAPI.fetchPairOpenOrders(this.username, symbol);
     return placedOrders.map(placed => {
       const match = onChainOrders.find(o =>
@@ -114,12 +159,37 @@ export abstract class TradingStrategyBase implements TradingStrategy {
   }
 
   protected async getOwnOpenOrders(symbol: string, trackedIds: Set<string>): Promise<OrderHistory[]> {
+    if (this.mockEngine) {
+      const mockOrders = this.mockEngine.getOpenOrders(symbol)
+        .filter(o => trackedIds.size === 0 || trackedIds.has(o.mockId));
+      return mockOrders.map(o => ({
+        order_id: o.mockId,
+        market_id: 0,
+        account: this.username,
+        order_type: 1,
+        order_side: o.orderSide,
+        quantity: o.quantity,
+        price: o.price,
+        created_at: o.placedAt || new Date().toISOString(),
+      } as unknown as OrderHistory));
+    }
+
     const allOrders = await this.getOpenOrders(symbol);
     if (trackedIds.size === 0) return allOrders; // fallback: no tracking yet
     return allOrders.filter(o => trackedIds.has(o.order_id));
   }
 
   protected async cancelTrackedOrders(trackedOrders: TrackedOrder[]): Promise<void> {
+    if (this.mockEngine) {
+      for (const order of trackedOrders) {
+        const id = order.orderId || (order as any).mockId;
+        if (id) {
+          this.mockEngine.cancelOrder(id);
+        }
+      }
+      return;
+    }
+
     for (const order of trackedOrders) {
       if (order.orderId) {
         try {

@@ -1,9 +1,7 @@
 import { BigNumber } from 'bignumber.js';
-import chai from 'chai';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { MarketMakerStrategy } from '../../src/strategies/marketmaker';
 import { getConfig } from '../../src/utils';
-
-const { assert } = chai;
 // const { createBuyOrder, createSellOrder } = MarketMakerStrategy;
 
 const marketXbtcXusdt = {
@@ -66,7 +64,7 @@ describe('createBuyOrder', () => {
     for (let i = 0; i < 10; i += 1) {
       const market = marketXprXusdc;
       const order = (currentStrategy as any).createBuyOrder(market.symbol, {
-        
+
         highestBid: 0.3745,
         lowestAsk: 0.3925,
         market,
@@ -75,11 +73,11 @@ describe('createBuyOrder', () => {
       const total = +(new BigNumber(order.quantity)
         .times(new BigNumber(market.ask_token.multiplier)));
       const orderMin = parseInt(market.order_min, 10);
-      assert.isAtLeast(total, orderMin, `total: ${total}, orderMin: ${orderMin}`);
+      expect(total).toBeGreaterThanOrEqual(orderMin);
     }
   });
 
-  xit('should always create an XPR_XMD buy order that is at least the order_min value', () => {
+  it.skip('should always create an XPR_XMD buy order that is at least the order_min value', () => {
     for (let i = 0; i < 10; i += 1) {
       const market = marketXprXmd;
       const order = (currentStrategy as any).createBuyOrder(market.symbol, {
@@ -91,12 +89,12 @@ describe('createBuyOrder', () => {
       const total = +(new BigNumber(order.quantity)
         .times(new BigNumber(market.ask_token.multiplier)));
       const orderMin = parseInt(market.order_min, 10);
-      assert.isAtLeast(total, orderMin, `total: ${total}, orderMin: ${orderMin}`);
+      expect(total).toBeGreaterThanOrEqual(orderMin);
     }
   });
 
   // No such pair in default set
-  xit('should always create an XBTC_XUSDT buy order that is at least the order_min value', () => {
+  it.skip('should always create an XBTC_XUSDT buy order that is at least the order_min value', () => {
     for (let i = 0; i < 10; i += 1) {
       const market = marketXbtcXusdt;
       const order = (currentStrategy as any).createBuyOrder(market.symbol, {
@@ -108,7 +106,7 @@ describe('createBuyOrder', () => {
       const total = +(new BigNumber(order.quantity)
         .times(new BigNumber(market.ask_token.multiplier)));
       const orderMin = parseInt(market.order_min, 10);
-      assert.isAtLeast(total, orderMin, `total: ${total}, orderMin: ${orderMin}`);
+      expect(total).toBeGreaterThanOrEqual(orderMin);
     }
   });
 
@@ -123,11 +121,11 @@ describe('createBuyOrder', () => {
         price: 0.38,
       }, i);
       const price = parseFloat(order.price);
-      assert.isBelow(price, lowestAsk, `buy order would execute, price:${order.price} lowestAsk: ${lowestAsk}`);
+      expect(price).toBeLessThan(lowestAsk);
     }
   });
 
-  xit('should create an XPR_XMD buy order that will succeed as a postonly order', () => {
+  it.skip('should create an XPR_XMD buy order that will succeed as a postonly order', () => {
     for (let i = 0; i < 10; i += 1) {
       const market = marketXprXmd;
       const lowestAsk = 0.1001;
@@ -138,12 +136,12 @@ describe('createBuyOrder', () => {
         price: 0.1001,
       }, i);
       const price = parseFloat(order.price);
-      assert.isBelow(price, lowestAsk, `buy order would execute, price:${order.price} lowestAsk: ${lowestAsk}`);
+      expect(price).toBeLessThan(lowestAsk);
     }
   });
-  
+
   // No such pair in default set
-  xit('should create an XBTC_XUSDT buy order that will succeed as a postonly order', () => {
+  it.skip('should create an XBTC_XUSDT buy order that will succeed as a postonly order', () => {
     for (let i = 0; i < 10; i += 1) {
       const market = marketXprXmd;
       const lowestAsk = 18345.0111;
@@ -154,12 +152,18 @@ describe('createBuyOrder', () => {
         price: 18345.2222,
       }, i);
       const price = parseFloat(order.price);
-      assert.isBelow(price, lowestAsk, `buy order would execute, price:${order.price} lowestAsk: ${lowestAsk}`);
+      expect(price).toBeLessThan(lowestAsk);
     }
   });
 });
 
 describe('createSellOrder', () => {
+  beforeEach(() => {
+    const config = getConfig();
+    currentStrategy = new MarketMakerStrategy();
+    currentStrategy.initialize(config.marketMaker);
+  });
+
   it('should always create an XPR_XUSDC sell order that is at least the order_min value', () => {
     for (let i = 0; i < 10; i += 1) {
       const market = marketXprXusdc;
@@ -173,11 +177,11 @@ describe('createSellOrder', () => {
         .times(new BigNumber(order.quantity))
         .times(new BigNumber(market.ask_token.multiplier)));
       const orderMin = parseInt(market.order_min, 10);
-      assert.isAtLeast(total, orderMin, `total: ${total}, orderMin: ${orderMin}`);
+      expect(total).toBeGreaterThanOrEqual(orderMin);
     }
   });
 
-  xit('should always create an XPR_XMD sell order that is at least the order_min value', () => {
+  it.skip('should always create an XPR_XMD sell order that is at least the order_min value', () => {
     for (let i = 0; i < 10; i += 1) {
       const market = marketXprXmd;
       const order = (currentStrategy as any).createSellOrder(market.symbol, {
@@ -190,11 +194,11 @@ describe('createSellOrder', () => {
         .times(new BigNumber(order.quantity))
         .times(new BigNumber(market.ask_token.multiplier)));
       const orderMin = parseInt(market.order_min, 10);
-      assert.isAtLeast(total, orderMin, `total: ${total}, orderMin: ${orderMin}`);
+      expect(total).toBeGreaterThanOrEqual(orderMin);
     }
   });
 
-  xit('should always create an XBTC_XUSDC sell order that is at least the order_min value', () => {
+  it.skip('should always create an XBTC_XUSDC sell order that is at least the order_min value', () => {
     for (let i = 0; i < 10; i += 1) {
       const market = marketXbtcXusdt;
       const order = (currentStrategy as any).createSellOrder(market.symbol, {
@@ -207,7 +211,7 @@ describe('createSellOrder', () => {
         .times(new BigNumber(order.quantity))
         .times(new BigNumber(market.ask_token.multiplier)));
       const orderMin = parseInt(market.order_min, 10);
-      assert.isAtLeast(total, orderMin, `total: ${total}, orderMin: ${orderMin}`);
+      expect(total).toBeGreaterThanOrEqual(orderMin);
     }
   });
 
@@ -222,11 +226,11 @@ describe('createSellOrder', () => {
         price: 0.38,
       }, i);
       const price = parseFloat(order.price);
-      assert.isAbove(price, highestBid, `sell order would execute, price:${order.price} lowestAsk: ${highestBid}`);
+      expect(price).toBeGreaterThan(highestBid);
     }
   });
 
-  xit('should create an XPR_XMD sell order that will succeed as a postonly order', () => {
+  it.skip('should create an XPR_XMD sell order that will succeed as a postonly order', () => {
     for (let i = 0; i < 10; i += 1) {
       const market = marketXprXmd;
       const highestBid = 0.0456;
@@ -237,11 +241,11 @@ describe('createSellOrder', () => {
         price: 0.1001,
       }, i);
       const price = parseFloat(order.price);
-      assert.isAbove(price, highestBid, `sell order would execute, price:${order.price} lowestAsk: ${highestBid}`);
+      expect(price).toBeGreaterThan(highestBid);
     }
   });
 
-  xit('should create an XBTC_XUSDT sell order that will succeed as a postonly order', () => {
+  it.skip('should create an XBTC_XUSDT sell order that will succeed as a postonly order', () => {
     for (let i = 0; i < 10; i += 1) {
       const market = marketXprXmd;
       const highestBid = 18345.1234;
@@ -252,7 +256,7 @@ describe('createSellOrder', () => {
         price: 18345.2222,
       }, i);
       const price = parseFloat(order.price);
-      assert.isAbove(price, highestBid, `sell order would execute, price:${order.price} lowestAsk: ${highestBid}`);
+      expect(price).toBeGreaterThan(highestBid);
     }
   });
 });

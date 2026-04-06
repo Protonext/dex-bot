@@ -41,6 +41,71 @@ export interface SwapBotPair {
 }
 
 
+export interface MomentumBotConfig {
+    symbol: string;
+    interval: string;
+    lookbackPeriods: number;
+    rsiOverbought: number;
+    rsiOversold: number;
+    bollingerStdDev: number;
+    orderAmount: number;
+    maxPositions: number;
+}
+
+export interface ScannerBotConfig {
+    minVolumeThreshold: number;
+    minChangePct: number;
+    maxPairs: number;
+    orderAmount: number;
+    holdDurationCycles: number;
+}
+
+export interface CopyTraderConfig {
+    targetAccounts: string[];
+    symbol?: string;
+    copyPct: number;
+    maxOrderAmount: number;
+}
+
+export interface WhaleWatcherConfig {
+    watchTokens: string[];
+    minTransferAmount: number;
+    symbol: string;
+    orderAmount: number;
+    actionDelay: number;
+}
+
+export interface SpreadBotConfig {
+    symbol: string;
+    maxSpreadPct: number;
+    minSpreadPct: number;
+    orderAmount: number;
+    depthLevels: number;
+    rebalanceThresholdPct: number;
+}
+
+export interface TWAPBotConfig {
+    symbol: string;
+    side: 'BUY' | 'SELL';
+    totalAmount: number;
+    durationMinutes: number;
+    sliceCount: number;
+    maxSlippage: number;
+    avoidHighVolatility: boolean;
+}
+
+export interface ArbBotConfig {
+    pairs: [string, string, string];
+    minProfitPct: number;
+    orderAmount: number;
+}
+
+export interface HealthMonitorConfig {
+    errorThreshold: number;
+    enabled: boolean;
+    cancelOrdersOnRestart: boolean;
+}
+
 export interface DashboardConfig {
     url: string;
     apiKey: string;
@@ -55,7 +120,12 @@ export interface BotConfig {
     channelId: string;
     cancelOpenOrdersOnExit: boolean;
     gridPlacement: boolean;
-    strategy: 'gridBot' | 'gridBotSplitReturnPreference' | 'marketMaker' | 'swapper' | 'spikeBot';
+    mode?: 'live' | 'paper';
+    paperTrading?: {
+        startingBalances?: Record<string, number>;
+    };
+    strategy: 'gridBot' | 'gridBotSplitReturnPreference' | 'marketMaker' | 'swapper' | 'spikeBot'
+        | 'momentumBot' | 'scannerBot' | 'copyTrader' | 'whaleWatcher' | 'spreadBot' | 'twapBot' | 'arbBot';
     marketMaker: {
         pairs: MarketMakerPair[];
     };
@@ -73,6 +143,13 @@ export interface BotConfig {
         maWindow: number;
         rebalanceThresholdPct: number;
     };
+    momentumBot?: MomentumBotConfig;
+    scannerBot?: ScannerBotConfig;
+    copyTrader?: CopyTraderConfig;
+    whaleWatcher?: WhaleWatcherConfig;
+    spreadBot?: SpreadBotConfig;
+    twapBot?: TWAPBotConfig;
+    arbBot?: ArbBotConfig;
     rpc: {
         privateKeyPermission: string;
         endpoints: string[];
@@ -82,4 +159,5 @@ export interface BotConfig {
     };
     username: string;
     dashboard?: DashboardConfig;
+    healthMonitor?: HealthMonitorConfig;
 }

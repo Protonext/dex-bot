@@ -1,18 +1,25 @@
-import { Depth, Market, OrderHistory, Trade } from '@proton/wrap-constants';
+import { Depth, Market, OrderHistory, Trade, OHLCV, Daily, Leaderboard } from '@proton/wrap-constants';
 import fetch from 'node-fetch';
 import { getConfig } from './utils';
+import { healthMonitor, EndpointCategory } from './health-monitor';
 
 // Contains methods for interacting with the off-chain DEX API
 const { apiRoot } = getConfig().rpc;
 const { lightApiRoot } = getConfig().rpc;
 
+function getEndpointCategory(root: string): EndpointCategory {
+  return root === lightApiRoot ? 'lightApi' : 'dexApi';
+}
+
 /**
  * Generic GET request to one of the APIs
  */
 const fetchFromAPI = async <T>(root: string, path: string, returnData = true, times = 3): Promise<T> => {
+  const category = getEndpointCategory(root);
   try {
     const response = await fetch(`${root}${path}`);
     const responseJson = await response.json() as any;
+    healthMonitor.recordSuccess(category);
     if (returnData) {
       return responseJson.data as T;
     }
@@ -21,12 +28,13 @@ const fetchFromAPI = async <T>(root: string, path: string, returnData = true, ti
   catch {
     if (times > 0) {
       times--;
-      await fetchFromAPI(root, path, returnData, times);
+      return await fetchFromAPI(root, path, returnData, times);
     } else {
-      throw new Error(" Not able to reach API server");
+      const msg = `Not able to reach API server: ${root}`;
+      healthMonitor.recordError(category, msg);
+      throw new Error(msg);
     }
   }
-  return {} as T;
 };
 
 // export async const fetchFromAPI = async <T>(root: string, path: string, returnData = true, retries: number): Promise<T> => {
@@ -125,12 +133,71 @@ export const fetchTokenBalance = async (username: string, contractname: string, 
   return tBalance;
 };
 
-const marketsRepo: { 
-  byId: Map<number, Market>; 
-  bySymbol: Map<string, Market>; 
-} = { 
-  byId: new Map(), 
-  bySymbol: new Map() 
+/**
+ * Fetch OHLCV candle data for a symbol
+ */
+export const fetchOHLCV = async (symbol: string, interval: string, limit = 500, from?: string, to?: string): Promise<OHLCV[]> => {
+  let path = `/v1/chart/ohlcv?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  if (from) path += `&from=${from}`;
+  if (to) path += `&to=${to}`;
+  const data = await fetchFromAPI<OHLCV[]>(apiRoot, path);
+  return data;
+};
+
+/**
+ * Fetch daily summary for all markets
+ */
+export const fetchDaily = async (): Promise<Daily[]> => {
+  const data = await fetchFromAPI<Daily[]>(apiRoot, '/v1/trades/daily');
+  return data;
+};
+
+/**
+ * Fetch leaderboard for given market IDs and time range
+ */
+export const fetchLeaderboard = async (marketIds: number[], from: string, to: string): Promise<Leaderboard[]> => {
+  const ids = marketIds.join(',');
+  const data = await fetchFromAPI<Leaderboard[]>(apiRoot, `/v1/leaderboard/list?market_ids=${ids}&from=${from}&to=${to}`);
+  return data;
+};
+
+/**
+ * Fetch transfer history for tokens moving to/from the DEX
+ */
+export const fetchTransferHistory = async (params: { account?: string; contract?: string; symbol?: string; limit?: number; offset?: number }): Promise<any[]> => {
+  const searchParams = new URLSearchParams();
+  if (params.account) searchParams.set('account', params.account);
+  if (params.contract) searchParams.set('contract', params.contract);
+  if (params.symbol) searchParams.set('symbol', params.symbol);
+  if (params.limit) searchParams.set('limit', String(params.limit));
+  if (params.offset) searchParams.set('offset', String(params.offset));
+  const data = await fetchFromAPI<any[]>(apiRoot, `/history/transfers?${searchParams.toString()}`);
+  return data;
+};
+
+/**
+ * Fetch trade history for a specific account
+ */
+export const fetchTradeHistory = async (account: string, symbol?: string, limit = 100, offset = 0): Promise<Trade[]> => {
+  let path = `/v1/trades/history?account=${account}&limit=${limit}&offset=${offset}`;
+  if (symbol) path += `&symbol=${symbol}`;
+  const data = await fetchFromAPI<Trade[]>(apiRoot, path);
+  return data;
+};
+
+/**
+ * Get all market symbols from the in-memory cache
+ */
+export const getAllMarketSymbols = (): string[] => {
+  return Array.from(marketsRepo.bySymbol.keys());
+};
+
+const marketsRepo: {
+  byId: Map<number, Market>;
+  bySymbol: Map<string, Market>;
+} = {
+  byId: new Map(),
+  bySymbol: new Map()
 };
 export const getMarketById = (id: number): Market | undefined => marketsRepo.byId.get(id);
 export const getMarketBySymbol = (symbol: string): Market | undefined => marketsRepo.bySymbol.get(symbol);
