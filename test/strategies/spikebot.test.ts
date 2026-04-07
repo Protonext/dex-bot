@@ -148,6 +148,62 @@ describe('SpikeBotStrategy', () => {
     });
   });
 
+  describe('Tiered recovery: Phase 1 — Patience', () => {
+    it('increments cyclesSincePlace each cycle for unfilled take-profit orders', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 20, reboundStepPct: 0.5,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 5, originalTargetPrice: 1.0,
+      }];
+      state.lastOrderMA = 1.0;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(0.95);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.0, order_side: 2 },
+      ]);
+
+      await strategy.trade();
+
+      expect(state.takeProfitOrders[0].cyclesSincePlace).toBe(6);
+    });
+
+    it('does not adjust take-profit price while within patience window', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 20, reboundStepPct: 0.5,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 10, originalTargetPrice: 1.0,
+      }];
+      state.lastOrderMA = 1.0;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(0.95);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.0, order_side: 2 },
+      ]);
+
+      await strategy.trade();
+
+      // Price should remain unchanged during patience
+      expect(state.takeProfitOrders[0].price).toBe(1.0);
+      expect(cancelOrder).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Config initialization', () => {
     it('uses provided maxReboundCycles and reboundStepPct', async () => {
       await strategy.initialize({

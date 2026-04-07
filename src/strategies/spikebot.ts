@@ -184,6 +184,15 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           state.takeProfitOrders = [...survivingExistingTP, ...newlyPlacedTP];
         }
 
+        // 5b. Tiered recovery — increment cycle counters for pre-existing unfilled take-profit orders
+        // (newly placed TPs this cycle start at 0 and are not incremented until next cycle)
+        for (const tracked of existingTakeProfitOrders) {
+          const stillInState = state.takeProfitOrders.includes(tracked);
+          if (stillInState && tracked.cyclesSincePlace !== undefined) {
+            tracked.cyclesSincePlace++;
+          }
+        }
+
         // 6. MA drift check - rebalance if MA shifted beyond threshold
         if (state.lastOrderMA > 0 && (state.spikeOrders.length > 0 || state.takeProfitOrders.length > 0)) {
           const driftPct = Math.abs(state.currentMA - state.lastOrderMA) / state.lastOrderMA * 100;
