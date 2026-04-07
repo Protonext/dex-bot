@@ -105,6 +105,10 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           expectedOrders: state.config.levels * 2,
         });
 
+        // Snapshot take-profit orders before step 4 so that newly placed TPs
+        // are not immediately checked for fill in step 5 of the same cycle.
+        const existingTakeProfitOrders = [...state.takeProfitOrders];
+
         // 4. Fill detection - spike orders
         if (state.spikeOrders.length > 0) {
           const newOrders: TradeOrder[] = [];
@@ -130,6 +134,9 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
 
               // Place take-profit counter-order at MA
               const tpOrder = this.buildTakeProfitOrder(symbol, state.currentMA, tracked.orderSide, state.config.orderAmount, market);
+              (tpOrder as any).entryPrice = tracked.price;
+              (tpOrder as any).cyclesSincePlace = 0;
+              (tpOrder as any).originalTargetPrice = state.currentMA;
               newOrders.push(tpOrder);
             } else {
               remainingSpike.push(tracked);
@@ -144,11 +151,11 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           state.spikeOrders = remainingSpike;
         }
 
-        // 5. Fill detection - take-profit orders
-        if (state.takeProfitOrders.length > 0) {
-          const remainingTP: TrackedOrder[] = [];
+        // 5. Fill detection - take-profit orders (only orders that existed before this cycle)
+        if (existingTakeProfitOrders.length > 0) {
+          const survivingExistingTP: TrackedOrder[] = [];
 
-          for (const tracked of state.takeProfitOrders) {
+          for (const tracked of existingTakeProfitOrders) {
             const stillOpen = tracked.orderId
               ? openOrders.find(o => o.order_id === tracked.orderId)
               : openOrders.find(o => o.price === tracked.price && o.order_side === tracked.orderSide);
@@ -163,10 +170,14 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
                 price: tracked.price,
               });
             } else {
-              remainingTP.push(tracked);
+              survivingExistingTP.push(tracked);
             }
           }
-          state.takeProfitOrders = remainingTP;
+          // Reconstruct: surviving pre-existing TPs + any newly placed TPs from this cycle
+          const newlyPlacedTP = state.takeProfitOrders.filter(
+            o => !existingTakeProfitOrders.includes(o)
+          );
+          state.takeProfitOrders = [...survivingExistingTP, ...newlyPlacedTP];
         }
 
         // 6. MA drift check - rebalance if MA shifted beyond threshold

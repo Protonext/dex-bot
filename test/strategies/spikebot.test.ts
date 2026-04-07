@@ -114,4 +114,37 @@ describe('SpikeBotStrategy', () => {
       expect(prepareLimitOrder).not.toHaveBeenCalled();
     });
   });
+
+  describe('Spike fill metadata', () => {
+    it('stores entryPrice, cyclesSincePlace, and originalTargetPrice on take-profit orders', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 1.0, 10);
+      const state = (strategy as any).pairStates[0];
+
+      // Simulate a BUY spike order at 0.90 that has been filled (not in open orders)
+      state.spikeOrders = [{
+        orderSide: 1, price: 0.9, quantity: 20, marketSymbol: 'XMT_XMD', orderId: 'spike-1',
+      }];
+      state.lastOrderMA = 1.0;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.0);
+      // spike-1 is NOT in open orders -> it was filled
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]);
+
+      await strategy.trade();
+
+      // The take-profit order should have recovery metadata
+      const tp = state.takeProfitOrders[0];
+      expect(tp).toBeDefined();
+      expect(tp.entryPrice).toBe(0.9);
+      expect(tp.cyclesSincePlace).toBe(0);
+      expect(tp.originalTargetPrice).toBe(1.0);
+      // Take-profit for a filled BUY should be a SELL at MA
+      expect(tp.orderSide).toBe(2);
+    });
+  });
 });
