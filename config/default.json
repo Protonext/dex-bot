@@ -1,12 +1,13 @@
 {
-  "bot" : {
-    "tradeIntervalMS": "5000",
-    "slackIntervalMS": "1000000",
+  "bot": {
+    "mode": "live",
+    "tradeIntervalMS": "30000",
+    "slackIntervalMS": "10000000",
     "slackBotToken": "",
     "channelId": "",
     "cancelOpenOrdersOnExit": false,
     "gridPlacement": true,
-    "strategy": "gridBot",
+    "strategy": "spikeBot",
     "marketMaker": {
       "pairs": [
         {
@@ -27,17 +28,119 @@
           "lowerLimit": 0.100,
           "gridLevels": 240,
           "bidAmountPerLevel": 30
-        } 
+        }
       ]
+    },
+    "gridBotSplitReturnPreference": {
+      "pairs": [
+        {
+          "symbol": "XDOGE_XMD",
+          "upperLimit": 0.580,
+          "lowerLimit": 0.100,
+          "gridLevels": 240,
+          "bidAmountPerLevel": 30
+        }
+      ]
+    },
+    "swapper": {
+      "pairs": [
+        {
+          "symbol": "LUNRXPR",
+          "quote": "XLUNR",
+          "quoteAmountPerSwap": 250,
+          "quoteMaxHold": 5000,
+          "quoteMinHold": 500,
+          "quoteBuyMaxThreshold": 1000,
+          "quoteSellMinThreshold": 2000,
+          "base": "XPR"
+        }
+      ]
+    },
+    "spikeBot": {
+      "maWindow": 10,
+      "rebalanceThresholdPct": 2.0,
+      "maxReboundCycles": 20,
+      "reboundStepPct": 0.5,
+      "pairs": [
+        {
+          "symbol": "XMT_XMD",
+          "deviationPct": 10.0,
+          "levels": 2,
+          "orderAmount": 20
+        }
+      ]
+    },
+    "momentumBot": {
+      "symbol": "XPR_XMD",
+      "interval": "1h",
+      "lookbackPeriods": 20,
+      "rsiOverbought": 70,
+      "rsiOversold": 30,
+      "bollingerStdDev": 2.0,
+      "orderAmount": 50,
+      "maxPositions": 3
+    },
+    "scannerBot": {
+      "minVolumeThreshold": 1000,
+      "minChangePct": 3.0,
+      "maxPairs": 5,
+      "orderAmount": 25,
+      "holdDurationCycles": 10
+    },
+    "copyTrader": {
+      "targetAccounts": [],
+      "copyPct": 0.1,
+      "maxOrderAmount": 100
+    },
+    "whaleWatcher": {
+      "watchTokens": ["XPR", "XMD"],
+      "minTransferAmount": 100000,
+      "symbol": "XPR_XMD",
+      "orderAmount": 50,
+      "actionDelay": 5000
+    },
+    "spreadBot": {
+      "symbol": "XPR_XMD",
+      "maxSpreadPct": 5.0,
+      "minSpreadPct": 0.2,
+      "orderAmount": 50,
+      "depthLevels": 10,
+      "rebalanceThresholdPct": 1.0
+    },
+    "twapBot": {
+      "symbol": "XPR_XMD",
+      "side": "BUY",
+      "totalAmount": 1000,
+      "durationMinutes": 60,
+      "sliceCount": 10,
+      "maxSlippage": 2.0,
+      "avoidHighVolatility": true
+    },
+    "arbBot": {
+      "pairs": ["XPR_XMD", "XBTC_XMD", "XPR_XBTC"],
+      "minProfitPct": 0.5,
+      "orderAmount": 50
     },
     "rpc": {
       "privateKeyPermission": "active",
-      "endpoints" : [
-        "https://rpc.api.mainnet.metalx.com",
-        "https://mainnet-rpc.api.protondex.com"
+      "endpoints": [
+        "https://rpc.api.mainnet.metalx.com"
       ],
       "apiRoot": "https://dex.api.mainnet.metalx.com/dex",
-      "lightApiRoot": "https://lightapi.eosamsterdam.net/api"
+      "lightApiRoot": "https://lightapi.eosamsterdam.net/api",
+      "privateKey": "PVT_K1_iRSsjjRgHA3p6GBunpLHCTevwcm5VHVdeU4tFRxUVS3XAhJDM"
+    },
+    "username": "taylerniels",
+    "healthMonitor": {
+      "errorThreshold": 15,
+      "enabled": true,
+      "cancelOrdersOnRestart": true
+    },
+    "dashboard": {
+      "url": "",
+      "apiKey": "",
+      "instanceId": "",
+      "enabled": false
     }
   }
 }

@@ -142,6 +142,8 @@ export interface BotConfig {
         pairs: SpikeBotPair[];
         maWindow: number;
         rebalanceThresholdPct: number;
+        maxReboundCycles?: number;
+        reboundStepPct?: number;
     };
     momentumBot?: MomentumBotConfig;
     scannerBot?: ScannerBotConfig;
