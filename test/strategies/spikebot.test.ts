@@ -147,4 +147,27 @@ describe('SpikeBotStrategy', () => {
       expect(tp.orderSide).toBe(2);
     });
   });
+
+  describe('Config initialization', () => {
+    it('uses provided maxReboundCycles and reboundStepPct', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        maxReboundCycles: 30, reboundStepPct: 0.8,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      expect((strategy as any).maxReboundCycles).toBe(30);
+      expect((strategy as any).reboundStepPct).toBe(0.8);
+    });
+
+    it('defaults maxReboundCycles to 20 and reboundStepPct to 0.5 when omitted', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      expect((strategy as any).maxReboundCycles).toBe(20);
+      expect((strategy as any).reboundStepPct).toBe(0.5);
+    });
+  });
 });

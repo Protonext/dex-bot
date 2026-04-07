@@ -32,11 +32,15 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
   private pairStates: PairState[] = [];
   private maWindow: number = 20;
   private rebalanceThresholdPct: number = 1.0;
+  private maxReboundCycles: number = 20;
+  private reboundStepPct: number = 0.5;
 
   async initialize(options?: BotConfig['spikeBot']): Promise<void> {
     if (options) {
       this.maWindow = options.maWindow;
       this.rebalanceThresholdPct = options.rebalanceThresholdPct;
+      this.maxReboundCycles = options.maxReboundCycles ?? 20;
+      this.reboundStepPct = options.reboundStepPct ?? 0.5;
       this.pairStates = options.pairs.map(pair => ({
         config: pair,
         priceHistory: [],
