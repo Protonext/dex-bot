@@ -169,9 +169,9 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           state.takeProfitOrders = remainingTP;
         }
 
-        // 6. MA drift check - rebalance if MA shifted beyond threshold
-        if (state.lastOrderMA > 0 && state.spikeOrders.length > 0) {
-          const driftPct = Math.abs(state.currentMA - state.lastOrderMA) / state.lastOrderMA * 100;
+        // 6. MA drift check - rebalance if price shifted beyond threshold from where orders were placed
+        if (state.lastOrderMA > 0 && (state.spikeOrders.length > 0 || state.takeProfitOrders.length > 0)) {
+          const driftPct = Math.abs(latestPrice - state.lastOrderMA) / state.lastOrderMA * 100;
           if (driftPct > this.rebalanceThresholdPct) {
             logger.info(`[SpikeBot] ${symbol} MA drift ${driftPct.toFixed(2)}% exceeds threshold ${this.rebalanceThresholdPct}% - rebalancing`);
             await this.cancelPairOrders(symbol, openOrders);
@@ -184,7 +184,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         }
 
         // 7. Initial placement (no tracked spike orders & MA ready)
-        if (state.spikeOrders.length === 0) {
+        if (state.spikeOrders.length === 0 && state.takeProfitOrders.length === 0) {
           // Cancel any stale on-chain orders from a previous run and withdraw funds
           if (openOrders.length > 0) {
             logger.info(`[SpikeBot] ${symbol} clearing ${openOrders.length} stale orders before fresh placement`);
