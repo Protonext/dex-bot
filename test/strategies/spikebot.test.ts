@@ -204,6 +204,96 @@ describe('SpikeBotStrategy', () => {
     });
   });
 
+  describe('Tiered recovery: Phase 2 — Gradual Adjustment', () => {
+    it('adjusts SELL take-profit price downward after maxReboundCycles', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 1.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 0.95, 10);
+      const state = (strategy as any).pairStates[0];
+
+      // SELL TP at 1.0, entry was BUY at 0.9, patience expired (cycles=6 > max=5)
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 6, originalTargetPrice: 1.0,
+      }];
+      state.lastOrderMA = 0.95;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(0.95);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.0, order_side: 2 },
+      ]);
+
+      await strategy.trade();
+
+      // Old TP should be cancelled
+      expect(cancelOrder).toHaveBeenCalledWith('tp-1');
+      // New price = 1.0 - (1.0 * 1.0 / 100) = 0.99
+      expect(state.takeProfitOrders[0].price).toBeCloseTo(0.99, 4);
+    });
+
+    it('adjusts BUY take-profit price upward after maxReboundCycles', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 1.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 1.05, 10);
+      const state = (strategy as any).pairStates[0];
+
+      // BUY TP at 1.0, entry was SELL at 1.1, patience expired
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 1, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 1.1, cyclesSincePlace: 6, originalTargetPrice: 1.0,
+      }];
+      state.lastOrderMA = 1.05;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.05);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.0, order_side: 1 },
+      ]);
+
+      await strategy.trade();
+
+      expect(cancelOrder).toHaveBeenCalledWith('tp-1');
+      // New price = 1.0 + (1.0 * 1.0 / 100) = 1.01
+      expect(state.takeProfitOrders[0].price).toBeCloseTo(1.01, 4);
+    });
+
+    it('does not adjust SELL take-profit upward (only moves toward market)', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 1.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 1.05, 10);
+      const state = (strategy as any).pairStates[0];
+
+      // SELL TP at 1.0, MA is now ABOVE at 1.05 — don't move TP up
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 1.0, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.9, cyclesSincePlace: 6, originalTargetPrice: 1.0,
+      }];
+      state.lastOrderMA = 1.05;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.05);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.0, order_side: 2 },
+      ]);
+
+      await strategy.trade();
+
+      // Should NOT cancel/adjust — price can only move down for SELL TP
+      expect(cancelOrder).not.toHaveBeenCalled();
+      expect(state.takeProfitOrders[0].price).toBe(1.0);
+    });
+  });
+
   describe('Config initialization', () => {
     it('uses provided maxReboundCycles and reboundStepPct', async () => {
       await strategy.initialize({

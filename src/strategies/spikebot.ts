@@ -193,6 +193,88 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           }
         }
 
+        // 5c. Tiered recovery — Phase 2: gradual adjustment after patience expires
+        const adjustedTP: TrackedOrder[] = [];
+        let tpOrdersChanged = false;
+
+        for (const tracked of state.takeProfitOrders) {
+          if (
+            tracked.cyclesSincePlace !== undefined &&
+            tracked.entryPrice !== undefined &&
+            tracked.cyclesSincePlace > this.maxReboundCycles
+          ) {
+            const currentPrice = tracked.price;
+            let candidatePrice: number;
+
+            if (tracked.orderSide === ORDERSIDES.SELL) {
+              if (state.currentMA >= tracked.price) {
+                // MA is at or above TP — price will likely come up to fill, skip adjustment
+                adjustedTP.push(tracked);
+                continue;
+              }
+              candidatePrice = currentPrice - (currentPrice * this.reboundStepPct / 100);
+            } else {
+              if (state.currentMA <= tracked.price) {
+                // MA is at or below TP — price will likely come down to fill, skip adjustment
+                adjustedTP.push(tracked);
+                continue;
+              }
+              candidatePrice = currentPrice + (currentPrice * this.reboundStepPct / 100);
+            }
+
+            // TODO: Hard floor check will be added in Task 7
+
+            // Cancel old order, place new one at adjusted price
+            if (tracked.orderId) {
+              try {
+                await dexrpc.cancelOrder(String(tracked.orderId));
+                await dexrpc.withdrawAll();
+                await delay(2000);
+              } catch (error) {
+                logger.error(`[SpikeBot] Failed to cancel TP order ${tracked.orderId}: ${(error as Error).message}`);
+                adjustedTP.push(tracked);
+                continue;
+              }
+            }
+
+            // Build replacement TP order at the adjusted price
+            // filledSide is the OPPOSITE of TP side (BUY spike -> SELL TP, so filledSide=BUY)
+            const filledSide = tracked.orderSide === ORDERSIDES.SELL ? ORDERSIDES.BUY : ORDERSIDES.SELL;
+            const adjustedOrder = this.buildTakeProfitOrder(
+              symbol, candidatePrice, filledSide, state.config.orderAmount, market
+            );
+
+            await this.placeOrders([adjustedOrder]);
+            const resolved = await this.resolveOrderIds([adjustedOrder], symbol);
+            if (resolved.length > 0) {
+              const newTracked = resolved[0];
+              newTracked.entryPrice = tracked.entryPrice;
+              newTracked.cyclesSincePlace = tracked.cyclesSincePlace;
+              newTracked.originalTargetPrice = tracked.originalTargetPrice;
+              adjustedTP.push(newTracked);
+            }
+
+            const oldPriceStr = currentPrice.toFixed(market.ask_token.precision);
+            const newPriceStr = candidatePrice.toFixed(market.ask_token.precision);
+            const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
+            logger.info(`[SpikeBot] Adjusted ${sideStr} take-profit: ${oldPriceStr} -> ${newPriceStr} (cycle ${tracked.cyclesSincePlace})`);
+            events.gridAdjusted(`[SpikeBot] Adjusted ${sideStr} TP: ${oldPriceStr} -> ${newPriceStr}`, {
+              market: symbol,
+              side: sideStr,
+              oldPrice: currentPrice,
+              newPrice: candidatePrice,
+              cycles: tracked.cyclesSincePlace,
+            });
+            tpOrdersChanged = true;
+          } else {
+            adjustedTP.push(tracked);
+          }
+        }
+
+        if (tpOrdersChanged) {
+          state.takeProfitOrders = adjustedTP;
+        }
+
         // 6. MA drift check - rebalance if MA shifted beyond threshold
         if (state.lastOrderMA > 0 && (state.spikeOrders.length > 0 || state.takeProfitOrders.length > 0)) {
           const driftPct = Math.abs(state.currentMA - state.lastOrderMA) / state.lastOrderMA * 100;
