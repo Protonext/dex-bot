@@ -196,6 +196,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         // 5c. Tiered recovery — Phase 2: gradual adjustment after patience expires
         const adjustedTP: TrackedOrder[] = [];
         let tpOrdersChanged = false;
+        let tpAbandoned = false;
 
         for (const tracked of state.takeProfitOrders) {
           if (
@@ -222,7 +223,51 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
               candidatePrice = currentPrice + (currentPrice * this.reboundStepPct / 100);
             }
 
-            // TODO: Hard floor check will be added in Task 7
+            // Hard floor check: never cross entry price (would create a loss)
+            if (tracked.orderSide === ORDERSIDES.SELL && candidatePrice <= tracked.entryPrice) {
+              // Would sell at or below what we bought for — abandon
+              if (tracked.orderId) {
+                try {
+                  await dexrpc.cancelOrder(String(tracked.orderId));
+                  await dexrpc.withdrawAll();
+                  await delay(2000);
+                } catch (error) {
+                  logger.error(`[SpikeBot] Failed to cancel abandoned TP ${tracked.orderId}: ${(error as Error).message}`);
+                }
+              }
+              logger.info(`[SpikeBot] Abandoning SELL take-profit for ${symbol}: adjusted price ${candidatePrice.toFixed(market.ask_token.precision)} would cross entry ${tracked.entryPrice}. Resuming spike orders.`);
+              events.orderCancelled(`[SpikeBot] Abandoned SELL TP — would cross entry price`, {
+                market: symbol,
+                entryPrice: tracked.entryPrice,
+                lastTargetPrice: currentPrice,
+                candidatePrice,
+              });
+              tpOrdersChanged = true;
+              tpAbandoned = true;
+              continue;
+            }
+            if (tracked.orderSide === ORDERSIDES.BUY && candidatePrice >= tracked.entryPrice) {
+              // Would buy at or above what we sold for — abandon
+              if (tracked.orderId) {
+                try {
+                  await dexrpc.cancelOrder(String(tracked.orderId));
+                  await dexrpc.withdrawAll();
+                  await delay(2000);
+                } catch (error) {
+                  logger.error(`[SpikeBot] Failed to cancel abandoned TP ${tracked.orderId}: ${(error as Error).message}`);
+                }
+              }
+              logger.info(`[SpikeBot] Abandoning BUY take-profit for ${symbol}: adjusted price ${candidatePrice.toFixed(market.ask_token.precision)} would cross entry ${tracked.entryPrice}. Resuming spike orders.`);
+              events.orderCancelled(`[SpikeBot] Abandoned BUY TP — would cross entry price`, {
+                market: symbol,
+                entryPrice: tracked.entryPrice,
+                lastTargetPrice: currentPrice,
+                candidatePrice,
+              });
+              tpOrdersChanged = true;
+              tpAbandoned = true;
+              continue;
+            }
 
             // Cancel old order, place new one at adjusted price
             if (tracked.orderId) {
@@ -290,7 +335,8 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         }
 
         // 7. Initial placement (no tracked spike orders & MA ready)
-        if (state.spikeOrders.length === 0 && state.takeProfitOrders.length === 0) {
+        // Skip placement if a TP was abandoned this cycle — resume on the next cycle
+        if (!tpAbandoned && state.spikeOrders.length === 0 && state.takeProfitOrders.length === 0) {
           // Cancel any stale on-chain orders from a previous run and withdraw funds
           if (openOrders.length > 0) {
             logger.info(`[SpikeBot] ${symbol} clearing ${openOrders.length} stale orders before fresh placement`);

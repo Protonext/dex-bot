@@ -294,6 +294,109 @@ describe('SpikeBotStrategy', () => {
     });
   });
 
+  describe('Tiered recovery: Phase 3 — Abandonment', () => {
+    it('abandons SELL take-profit when adjusted price would cross entry price', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 0.85, 10);
+      const state = (strategy as any).pairStates[0];
+
+      // SELL TP at 0.91, entry BUY was at 0.90
+      // Adjustment: 0.91 - (0.91 * 2.0 / 100) = 0.91 - 0.0182 = 0.8918 < 0.90 entry
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 0.91, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.90, cyclesSincePlace: 6, originalTargetPrice: 1.0,
+      }];
+      state.lastOrderMA = 0.85;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(0.85);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 0.91, order_side: 2 },
+      ]);
+
+      await strategy.trade();
+
+      // TP should be cancelled and removed
+      expect(cancelOrder).toHaveBeenCalledWith('tp-1');
+      expect(state.takeProfitOrders.length).toBe(0);
+    });
+
+    it('abandons BUY take-profit when adjusted price would cross entry price', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 1.15, 10);
+      const state = (strategy as any).pairStates[0];
+
+      // BUY TP at 1.09, entry SELL was at 1.10
+      // Adjustment: 1.09 + (1.09 * 2.0 / 100) = 1.09 + 0.0218 = 1.1118 > 1.10 entry
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 1, price: 1.09, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 1.10, cyclesSincePlace: 6, originalTargetPrice: 1.0,
+      }];
+      state.lastOrderMA = 1.15;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(1.15);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 1.09, order_side: 1 },
+      ]);
+
+      await strategy.trade();
+
+      expect(cancelOrder).toHaveBeenCalledWith('tp-1');
+      expect(state.takeProfitOrders.length).toBe(0);
+    });
+
+    it('resumes spike order placement after abandonment', async () => {
+      await strategy.initialize({
+        maWindow: 10, rebalanceThresholdPct: 2.0, maxReboundCycles: 5, reboundStepPct: 2.0,
+        pairs: [{ symbol: 'XMT_XMD', deviationPct: 10, levels: 1, orderAmount: 20 }],
+      });
+
+      warmUpMA(strategy, 0.85, 10);
+      const state = (strategy as any).pairStates[0];
+
+      state.spikeOrders = [];
+      state.takeProfitOrders = [{
+        orderSide: 2, price: 0.91, quantity: 20, marketSymbol: 'XMT_XMD',
+        orderId: 'tp-1', entryPrice: 0.90, cyclesSincePlace: 6, originalTargetPrice: 1.0,
+      }];
+      state.lastOrderMA = 0.85;
+
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(0.85);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([
+        { order_id: 'tp-1', price: 0.91, order_side: 2 },
+      ]);
+
+      await strategy.trade();
+
+      // After abandonment, takeProfitOrders is empty, spikeOrders is empty
+      expect(state.takeProfitOrders.length).toBe(0);
+      expect(state.spikeOrders.length).toBe(0);
+
+      // Next cycle — fresh placement should happen
+      mockDexAPI.fetchLatestPrice.mockResolvedValue(0.85);
+      mockDexAPI.fetchPairOpenOrders.mockResolvedValue([]);
+      vi.mocked(cancelOrder).mockClear();
+
+      const { prepareLimitOrder } = await import('../../src/dexrpc');
+      vi.mocked(prepareLimitOrder).mockClear();
+
+      await strategy.trade();
+
+      // Should place new spike orders
+      expect(prepareLimitOrder).toHaveBeenCalled();
+      expect(state.spikeOrders.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('Config initialization', () => {
     it('uses provided maxReboundCycles and reboundStepPct', async () => {
       await strategy.initialize({
