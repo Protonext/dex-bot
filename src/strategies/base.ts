@@ -9,10 +9,20 @@ import { events } from "../events";
 import fs from 'fs';
 import path from 'path';
 
+export interface RecoveryOrderState {
+  side: 'BUY' | 'SELL';
+  price: number;
+  entryPrice: number;
+  originalTargetPrice: number;
+  cyclesSincePlace: number;
+  phase: 'patience' | 'adjusting';
+}
+
 export interface OrderStateEntry {
   symbol: string;
   orders: OrderHistory[];
   expectedOrders: number;
+  recoveryOrders?: RecoveryOrderState[];
 }
 
 export interface MarketDetails {
@@ -291,6 +301,9 @@ export abstract class TradingStrategyBase implements TradingStrategy {
           sellOrders,
           totalOrders: entry.orders.length,
           expectedOrders: entry.expectedOrders,
+          ...(entry.recoveryOrders && entry.recoveryOrders.length > 0 && {
+            recoveryOrders: entry.recoveryOrders,
+          }),
         };
       });
 

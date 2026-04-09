@@ -32,11 +32,15 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
   private pairStates: PairState[] = [];
   private maWindow: number = 20;
   private rebalanceThresholdPct: number = 1.0;
+  private maxReboundCycles: number = 20;
+  private reboundStepPct: number = 0.5;
 
   async initialize(options?: BotConfig['spikeBot']): Promise<void> {
     if (options) {
       this.maWindow = options.maWindow;
       this.rebalanceThresholdPct = options.rebalanceThresholdPct;
+      this.maxReboundCycles = options.maxReboundCycles ?? 20;
+      this.reboundStepPct = options.reboundStepPct ?? 0.5;
       this.pairStates = options.pairs.map(pair => ({
         config: pair,
         priceHistory: [],
@@ -99,11 +103,29 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         );
         const openOrders = await this.getOwnOpenOrders(symbol, trackedIds);
 
+        const recoveryOrders: import('./base').RecoveryOrderState[] = state.takeProfitOrders
+          .filter(o => o.entryPrice !== undefined && o.cyclesSincePlace !== undefined)
+          .map(o => ({
+            side: (o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+            price: o.price,
+            entryPrice: o.entryPrice!,
+            originalTargetPrice: o.originalTargetPrice ?? o.price,
+            cyclesSincePlace: o.cyclesSincePlace!,
+            phase: (o.cyclesSincePlace! > this.maxReboundCycles ? 'adjusting' : 'patience') as 'patience' | 'adjusting',
+          }));
+
         orderStateEntries.push({
           symbol,
           orders: openOrders,
-          expectedOrders: state.config.levels * 2,
+          expectedOrders: state.takeProfitOrders.length > 0
+            ? state.takeProfitOrders.length
+            : state.config.levels * 2,
+          recoveryOrders: recoveryOrders.length > 0 ? recoveryOrders : undefined,
         });
+
+        // Snapshot take-profit orders before step 4 so that newly placed TPs
+        // are not immediately checked for fill in step 5 of the same cycle.
+        const existingTakeProfitOrders = [...state.takeProfitOrders];
 
         // 4. Fill detection - spike orders
         if (state.spikeOrders.length > 0) {
@@ -130,6 +152,9 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
 
               // Place take-profit counter-order at MA
               const tpOrder = this.buildTakeProfitOrder(symbol, state.currentMA, tracked.orderSide, state.config.orderAmount, market);
+              (tpOrder as any).entryPrice = tracked.price;
+              (tpOrder as any).cyclesSincePlace = 0;
+              (tpOrder as any).originalTargetPrice = state.currentMA;
               newOrders.push(tpOrder);
             } else {
               remainingSpike.push(tracked);
@@ -144,11 +169,11 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
           state.spikeOrders = remainingSpike;
         }
 
-        // 5. Fill detection - take-profit orders
-        if (state.takeProfitOrders.length > 0) {
-          const remainingTP: TrackedOrder[] = [];
+        // 5. Fill detection - take-profit orders (only orders that existed before this cycle)
+        if (existingTakeProfitOrders.length > 0) {
+          const survivingExistingTP: TrackedOrder[] = [];
 
-          for (const tracked of state.takeProfitOrders) {
+          for (const tracked of existingTakeProfitOrders) {
             const stillOpen = tracked.orderId
               ? openOrders.find(o => o.order_id === tracked.orderId)
               : openOrders.find(o => o.price === tracked.price && o.order_side === tracked.orderSide);
@@ -163,14 +188,154 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
                 price: tracked.price,
               });
             } else {
-              remainingTP.push(tracked);
+              survivingExistingTP.push(tracked);
             }
           }
-          state.takeProfitOrders = remainingTP;
+          // Reconstruct: surviving pre-existing TPs + any newly placed TPs from this cycle
+          const newlyPlacedTP = state.takeProfitOrders.filter(
+            o => !existingTakeProfitOrders.includes(o)
+          );
+          state.takeProfitOrders = [...survivingExistingTP, ...newlyPlacedTP];
+        }
+
+        // 5b. Tiered recovery — increment cycle counters for pre-existing unfilled take-profit orders
+        // (newly placed TPs this cycle start at 0 and are not incremented until next cycle)
+        for (const tracked of existingTakeProfitOrders) {
+          const stillInState = state.takeProfitOrders.includes(tracked);
+          if (stillInState && tracked.cyclesSincePlace !== undefined) {
+            tracked.cyclesSincePlace++;
+          }
+        }
+
+        // 5c. Tiered recovery — Phase 2: gradual adjustment after patience expires
+        const adjustedTP: TrackedOrder[] = [];
+        let tpOrdersChanged = false;
+        let tpAbandoned = false;
+
+        for (const tracked of state.takeProfitOrders) {
+          if (
+            tracked.cyclesSincePlace !== undefined &&
+            tracked.entryPrice !== undefined &&
+            tracked.cyclesSincePlace > this.maxReboundCycles
+          ) {
+            const currentPrice = tracked.price;
+            let candidatePrice: number;
+
+            if (tracked.orderSide === ORDERSIDES.SELL) {
+              if (state.currentMA >= tracked.price) {
+                // MA is at or above TP — price will likely come up to fill, skip adjustment
+                adjustedTP.push(tracked);
+                continue;
+              }
+              candidatePrice = currentPrice - (currentPrice * this.reboundStepPct / 100);
+            } else {
+              if (state.currentMA <= tracked.price) {
+                // MA is at or below TP — price will likely come down to fill, skip adjustment
+                adjustedTP.push(tracked);
+                continue;
+              }
+              candidatePrice = currentPrice + (currentPrice * this.reboundStepPct / 100);
+            }
+
+            // Hard floor check: never cross entry price (would create a loss)
+            if (tracked.orderSide === ORDERSIDES.SELL && candidatePrice <= tracked.entryPrice) {
+              // Would sell at or below what we bought for — abandon
+              if (tracked.orderId) {
+                try {
+                  await dexrpc.cancelOrder(String(tracked.orderId));
+                  await dexrpc.withdrawAll();
+                  await delay(2000);
+                } catch (error) {
+                  logger.error(`[SpikeBot] Failed to cancel abandoned TP ${tracked.orderId}: ${(error as Error).message}`);
+                }
+              }
+              logger.info(`[SpikeBot] Abandoning SELL take-profit for ${symbol}: adjusted price ${candidatePrice.toFixed(market.ask_token.precision)} would cross entry ${tracked.entryPrice}. Resuming spike orders.`);
+              events.orderCancelled(`[SpikeBot] Abandoned SELL TP — would cross entry price`, {
+                market: symbol,
+                entryPrice: tracked.entryPrice,
+                lastTargetPrice: currentPrice,
+                candidatePrice,
+              });
+              tpOrdersChanged = true;
+              tpAbandoned = true;
+              continue;
+            }
+            if (tracked.orderSide === ORDERSIDES.BUY && candidatePrice >= tracked.entryPrice) {
+              // Would buy at or above what we sold for — abandon
+              if (tracked.orderId) {
+                try {
+                  await dexrpc.cancelOrder(String(tracked.orderId));
+                  await dexrpc.withdrawAll();
+                  await delay(2000);
+                } catch (error) {
+                  logger.error(`[SpikeBot] Failed to cancel abandoned TP ${tracked.orderId}: ${(error as Error).message}`);
+                }
+              }
+              logger.info(`[SpikeBot] Abandoning BUY take-profit for ${symbol}: adjusted price ${candidatePrice.toFixed(market.ask_token.precision)} would cross entry ${tracked.entryPrice}. Resuming spike orders.`);
+              events.orderCancelled(`[SpikeBot] Abandoned BUY TP — would cross entry price`, {
+                market: symbol,
+                entryPrice: tracked.entryPrice,
+                lastTargetPrice: currentPrice,
+                candidatePrice,
+              });
+              tpOrdersChanged = true;
+              tpAbandoned = true;
+              continue;
+            }
+
+            // Cancel old order, place new one at adjusted price
+            if (tracked.orderId) {
+              try {
+                await dexrpc.cancelOrder(String(tracked.orderId));
+                await dexrpc.withdrawAll();
+                await delay(2000);
+              } catch (error) {
+                logger.error(`[SpikeBot] Failed to cancel TP order ${tracked.orderId}: ${(error as Error).message}`);
+                adjustedTP.push(tracked);
+                continue;
+              }
+            }
+
+            // Build replacement TP order at the adjusted price
+            // filledSide is the OPPOSITE of TP side (BUY spike -> SELL TP, so filledSide=BUY)
+            const filledSide = tracked.orderSide === ORDERSIDES.SELL ? ORDERSIDES.BUY : ORDERSIDES.SELL;
+            const adjustedOrder = this.buildTakeProfitOrder(
+              symbol, candidatePrice, filledSide, state.config.orderAmount, market
+            );
+
+            await this.placeOrders([adjustedOrder]);
+            const resolved = await this.resolveOrderIds([adjustedOrder], symbol);
+            if (resolved.length > 0) {
+              const newTracked = resolved[0];
+              newTracked.entryPrice = tracked.entryPrice;
+              newTracked.cyclesSincePlace = tracked.cyclesSincePlace;
+              newTracked.originalTargetPrice = tracked.originalTargetPrice;
+              adjustedTP.push(newTracked);
+            }
+
+            const oldPriceStr = currentPrice.toFixed(market.ask_token.precision);
+            const newPriceStr = candidatePrice.toFixed(market.ask_token.precision);
+            const sideStr = tracked.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL';
+            logger.info(`[SpikeBot] Adjusted ${sideStr} take-profit: ${oldPriceStr} -> ${newPriceStr} (cycle ${tracked.cyclesSincePlace})`);
+            events.gridAdjusted(`[SpikeBot] Adjusted ${sideStr} TP: ${oldPriceStr} -> ${newPriceStr}`, {
+              market: symbol,
+              side: sideStr,
+              oldPrice: currentPrice,
+              newPrice: candidatePrice,
+              cycles: tracked.cyclesSincePlace,
+            });
+            tpOrdersChanged = true;
+          } else {
+            adjustedTP.push(tracked);
+          }
+        }
+
+        if (tpOrdersChanged) {
+          state.takeProfitOrders = adjustedTP;
         }
 
         // 6. MA drift check - rebalance if MA shifted beyond threshold
-        if (state.lastOrderMA > 0 && state.spikeOrders.length > 0) {
+        if (state.lastOrderMA > 0 && (state.spikeOrders.length > 0 || state.takeProfitOrders.length > 0)) {
           const driftPct = Math.abs(state.currentMA - state.lastOrderMA) / state.lastOrderMA * 100;
           if (driftPct > this.rebalanceThresholdPct) {
             logger.info(`[SpikeBot] ${symbol} MA drift ${driftPct.toFixed(2)}% exceeds threshold ${this.rebalanceThresholdPct}% - rebalancing`);
@@ -184,7 +349,8 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         }
 
         // 7. Initial placement (no tracked spike orders & MA ready)
-        if (state.spikeOrders.length === 0) {
+        // Skip placement if a TP was abandoned this cycle — resume on the next cycle
+        if (!tpAbandoned && state.spikeOrders.length === 0 && state.takeProfitOrders.length === 0) {
           // Cancel any stale on-chain orders from a previous run and withdraw funds
           if (openOrders.length > 0) {
             logger.info(`[SpikeBot] ${symbol} clearing ${openOrders.length} stale orders before fresh placement`);
