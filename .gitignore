@@ -5,3 +5,4 @@ npm-debug.log
 .env
 .DS_Store
 ./config/custom-environment-variables.json
+package-lock.json
