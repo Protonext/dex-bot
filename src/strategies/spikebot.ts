@@ -103,10 +103,24 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         );
         const openOrders = await this.getOwnOpenOrders(symbol, trackedIds);
 
+        const recoveryOrders: import('./base').RecoveryOrderState[] = state.takeProfitOrders
+          .filter(o => o.entryPrice !== undefined && o.cyclesSincePlace !== undefined)
+          .map(o => ({
+            side: (o.orderSide === ORDERSIDES.BUY ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+            price: o.price,
+            entryPrice: o.entryPrice!,
+            originalTargetPrice: o.originalTargetPrice ?? o.price,
+            cyclesSincePlace: o.cyclesSincePlace!,
+            phase: (o.cyclesSincePlace! > this.maxReboundCycles ? 'adjusting' : 'patience') as 'patience' | 'adjusting',
+          }));
+
         orderStateEntries.push({
           symbol,
           orders: openOrders,
-          expectedOrders: state.config.levels * 2,
+          expectedOrders: state.takeProfitOrders.length > 0
+            ? state.takeProfitOrders.length
+            : state.config.levels * 2,
+          recoveryOrders: recoveryOrders.length > 0 ? recoveryOrders : undefined,
         });
 
         // Snapshot take-profit orders before step 4 so that newly placed TPs
