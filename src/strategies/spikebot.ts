@@ -335,6 +335,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         }
 
         // 6. MA drift check - rebalance if MA shifted beyond threshold
+        let rebalanced = false;
         if (state.lastOrderMA > 0 && (state.spikeOrders.length > 0 || state.takeProfitOrders.length > 0)) {
           const driftPct = Math.abs(state.currentMA - state.lastOrderMA) / state.lastOrderMA * 100;
           if (driftPct > this.rebalanceThresholdPct) {
@@ -344,6 +345,7 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
             await delay(2000);
             state.spikeOrders = [];
             state.takeProfitOrders = [];
+            rebalanced = true;
             // Fall through to initial placement below
           }
         }
@@ -352,7 +354,8 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
         // Skip placement if a TP was abandoned this cycle — resume on the next cycle
         if (!tpAbandoned && state.spikeOrders.length === 0 && state.takeProfitOrders.length === 0) {
           // Cancel any stale on-chain orders from a previous run and withdraw funds
-          if (openOrders.length > 0) {
+          // Skip if we just rebalanced (orders already cancelled in step 6)
+          if (!rebalanced && openOrders.length > 0) {
             logger.info(`[SpikeBot] ${symbol} clearing ${openOrders.length} stale orders before fresh placement`);
             await this.cancelPairOrders(symbol, openOrders);
             await dexrpc.withdrawAll();
@@ -410,7 +413,12 @@ export class SpikeBotStrategy extends TradingStrategyBase implements TradingStra
       try {
         await dexrpc.cancelOrder(String(order.order_id));
       } catch (error) {
-        logger.error(`[SpikeBot] Failed to cancel order ${order.order_id}: ${(error as Error).message}`);
+        const msg = (error as Error).message;
+        if (msg.includes('Order not found')) {
+          logger.info(`[SpikeBot] Order ${order.order_id} already gone (filled or cancelled)`);
+        } else {
+          logger.error(`[SpikeBot] Failed to cancel order ${order.order_id}: ${msg}`);
+        }
       }
     }
   }
